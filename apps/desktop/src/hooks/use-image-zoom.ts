@@ -9,6 +9,7 @@ import {
   ZOOM_STEP,
   clampPan,
   clampZoom,
+  isTypingTarget,
   zoomAtPoint,
   zoomFromWheel
 } from '@/lib/image-zoom'
@@ -28,9 +29,11 @@ const ORIGIN: Point = { x: 0, y: 0 }
  * sharp, so a vector grows its LAYOUT box (width/height) and the engine
  * re-renders it at the new size; pan stays a translate either way.
  */
-export function useImageZoom(active: boolean, vector = false) {
+export function useImageZoom(active: boolean, vector = false, modal = false) {
   const [scale, setScale] = useState(MIN_ZOOM)
   const imageRef = useRef<HTMLImageElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const hoverRef = useRef(false)
   const offsetRef = useRef<Point>(ORIGIN)
   const dragRef = useRef<{ origin: Point; pointerId: number; start: Point } | null>(null)
   // The laid-out size at fit, captured before any zoom scales the box. For a
@@ -195,10 +198,25 @@ export function useImageZoom(active: boolean, vector = false) {
     else apply(ORIGIN, clampZoom(MIN_ZOOM * ZOOM_STEP * ZOOM_STEP))
   }, [apply, reset, scale])
 
-  // Keyboard zoom while the lightbox owns the screen.
+  // Keyboard zoom, scoped so it never steals a character from the app.
+  //
+  // `+` and `-` are ordinary characters. A modal lightbox owns the screen and
+  // may claim them; a pane sitting beside a live composer may NOT — there the
+  // shortcut only applies while the pointer is over the image or the focus is
+  // inside it. Either way, a typing target always wins.
   useEffect(() => {
     if (!active) return
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return
+      // A modifier means the user is asking the OS/app for something else
+      // (browser zoom, a chord) — not for this image.
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (!modal) {
+        const container = containerRef.current
+        if (!container) return
+        const focusInside = container.contains(document.activeElement)
+        if (!hoverRef.current && !focusInside) return
+      }
       if (event.key === '+' || event.key === '=') {
         event.preventDefault()
         zoomIn()
@@ -212,11 +230,20 @@ export function useImageZoom(active: boolean, vector = false) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [active, reset, zoomIn, zoomOut])
+  }, [active, modal, reset, zoomIn, zoomOut])
 
   return {
     canZoomIn: scale < MAX_ZOOM,
     canZoomOut: scale > MIN_ZOOM,
+    containerProps: {
+      onPointerEnter: () => {
+        hoverRef.current = true
+      },
+      onPointerLeave: () => {
+        hoverRef.current = false
+      },
+      ref: containerRef
+    },
     endDrag,
     imageRef,
     isPanning,

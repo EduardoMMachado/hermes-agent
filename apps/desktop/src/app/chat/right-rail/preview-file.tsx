@@ -391,6 +391,7 @@ function PreviewImage({ alt, src }: { alt: string; src: string }) {
     <div
       className="relative flex h-full w-full items-center justify-center overflow-hidden bg-transparent p-4"
       onWheel={zoom.onWheel}
+      {...zoom.containerProps}
     >
       <img
         alt={alt}

@@ -81,7 +81,7 @@ export function ImageLightbox({
   saving: boolean
   src: string
 }) {
-  const zoom = useImageZoom(open, isVectorSource(src))
+  const zoom = useImageZoom(open, isVectorSource(src), true)
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>

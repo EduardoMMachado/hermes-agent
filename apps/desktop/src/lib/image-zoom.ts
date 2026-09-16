@@ -25,6 +25,20 @@ export function isVectorSource(src: string | undefined): boolean {
   return value.split(/[?#]/)[0].endsWith('.svg')
 }
 
+/**
+ * Is this event coming from somewhere the user is typing?
+ *
+ * A zoom shortcut must never swallow a character the user meant to type. `+`
+ * is a plain character, so an image surface that binds it globally steals it
+ * from the composer, from search fields, from every text input on screen.
+ */
+export function isTypingTarget(target: EventTarget | null): boolean {
+  if (!target || !(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
 export const MIN_ZOOM = 1
 export const MAX_ZOOM = 8
 

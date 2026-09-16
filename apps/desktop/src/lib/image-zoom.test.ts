@@ -7,6 +7,7 @@ import {
   clampPan,
   clampZoom,
   isVectorSource,
+  isTypingTarget,
   maxPanOffset,
   zoomAtPoint,
   zoomBy,
@@ -134,6 +135,32 @@ describe('isVectorSource', () => {
 
   it('handles a missing source', () => {
     expect(isVectorSource(undefined)).toBe(false)
+  })
+})
+
+describe('isTypingTarget', () => {
+  it('is true for a textarea — the chat composer', () => {
+    // The bug this pins: a global `+` binding zoomed the preview while the
+    // user was typing a message, so the character never reached the composer.
+    const el = document.createElement('textarea')
+    expect(isTypingTarget(el)).toBe(true)
+  })
+
+  it('is true for an input and a contenteditable', () => {
+    expect(isTypingTarget(document.createElement('input'))).toBe(true)
+    const editable = document.createElement('div')
+    editable.contentEditable = 'true'
+    // jsdom does not derive isContentEditable from the attribute.
+    Object.defineProperty(editable, 'isContentEditable', { value: true })
+    expect(isTypingTarget(editable)).toBe(true)
+  })
+
+  it('is false for a plain element, where a shortcut is welcome', () => {
+    expect(isTypingTarget(document.createElement('div'))).toBe(false)
+  })
+
+  it('handles a null target', () => {
+    expect(isTypingTarget(null)).toBe(false)
   })
 })
 

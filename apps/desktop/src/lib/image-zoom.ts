@@ -9,6 +9,22 @@
  * walking back toward the fit, not past it.
  */
 
+/**
+ * Does this source redraw at any scale, or is it a fixed grid of pixels?
+ *
+ * It decides HOW zoom is applied. A `transform: scale()` magnifies the bitmap
+ * the browser already rasterized at layout size, so a vector blurs exactly like
+ * a photo would. Growing the layout box instead makes the engine re-render the
+ * vector at the new size — the whole reason to keep a diagram in SVG.
+ */
+export function isVectorSource(src: string | undefined): boolean {
+  if (!src) return false
+  const value = src.trim().toLowerCase()
+  if (value.startsWith('data:')) return value.startsWith('data:image/svg+xml')
+  // Strip any query/fragment before testing the extension.
+  return value.split(/[?#]/)[0].endsWith('.svg')
+}
+
 export const MIN_ZOOM = 1
 export const MAX_ZOOM = 8
 

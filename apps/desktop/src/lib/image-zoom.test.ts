@@ -6,6 +6,7 @@ import {
   ZOOM_STEP,
   clampPan,
   clampZoom,
+  isVectorSource,
   maxPanOffset,
   zoomAtPoint,
   zoomBy,
@@ -103,6 +104,36 @@ describe('zoomAtPoint', () => {
     const { offset, scale } = zoomAtPoint({ x: 300, y: 200 }, { x: 0, y: 0 }, 1, 2, BASE)
     expect(Math.abs(offset.x)).toBeLessThanOrEqual(maxPanOffset(BASE.width, scale))
     expect(Math.abs(offset.y)).toBeLessThanOrEqual(maxPanOffset(BASE.height, scale))
+  })
+})
+
+describe('isVectorSource', () => {
+  it('recognizes an svg file path', () => {
+    expect(isVectorSource('/tmp/architecture.svg')).toBe(true)
+  })
+
+  it('recognizes an svg data url — how the preview pane loads a file', () => {
+    // The right rail reads files as data URLs, so extension sniffing alone
+    // would miss every SVG it renders and blur them all.
+    expect(isVectorSource('data:image/svg+xml;base64,PHN2ZyB4bWxucz0i')).toBe(true)
+  })
+
+  it('ignores a query string or fragment after the extension', () => {
+    expect(isVectorSource('/diagram.svg?v=2')).toBe(true)
+    expect(isVectorSource('/diagram.svg#layer1')).toBe(true)
+  })
+
+  it('is false for rasters, which must keep transform-scale zoom', () => {
+    expect(isVectorSource('/photo.png')).toBe(false)
+    expect(isVectorSource('data:image/png;base64,iVBORw0KGgo=')).toBe(false)
+  })
+
+  it('is not fooled by a path that merely mentions svg', () => {
+    expect(isVectorSource('/svg-exports/chart.png')).toBe(false)
+  })
+
+  it('handles a missing source', () => {
+    expect(isVectorSource(undefined)).toBe(false)
   })
 })
 

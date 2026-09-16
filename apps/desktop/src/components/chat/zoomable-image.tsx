@@ -7,6 +7,7 @@ import { useImageDownload } from '@/hooks/use-image-download'
 import { useImageZoom } from '@/hooks/use-image-zoom'
 import { useI18n } from '@/i18n'
 import { Download, Maximize, ZoomIn, ZoomOut } from '@/lib/icons'
+import { isVectorSource } from '@/lib/image-zoom'
 import { cn } from '@/lib/utils'
 
 export interface ZoomableImageProps extends ComponentProps<'img'> {
@@ -80,7 +81,7 @@ export function ImageLightbox({
   saving: boolean
   src: string
 }) {
-  const zoom = useImageZoom(open)
+  const zoom = useImageZoom(open, isVectorSource(src))
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>

@@ -21,26 +21,62 @@ const ORIGIN: Point = { x: 0, y: 0 }
  * Pointer work stays in refs and is written to the DOM directly during a drag —
  * a React state update per pointermove would re-render the dialog on every
  * frame of a gesture that is pure transform.
+ *
+ * `vector` picks HOW the zoom is applied. A raster is magnified with
+ * `transform: scale()`, which stretches the bitmap the browser already
+ * rasterized. Doing that to an SVG blurs a diagram that has the data to stay
+ * sharp, so a vector grows its LAYOUT box (width/height) and the engine
+ * re-renders it at the new size; pan stays a translate either way.
  */
-export function useImageZoom(active: boolean) {
+export function useImageZoom(active: boolean, vector = false) {
   const [scale, setScale] = useState(MIN_ZOOM)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const offsetRef = useRef<Point>(ORIGIN)
   const dragRef = useRef<{ origin: Point; pointerId: number; start: Point } | null>(null)
+  // The laid-out size at fit, captured before any zoom scales the box. For a
+  // vector this is the baseline every zoom level multiplies.
+  const naturalRef = useRef<{ height: number; width: number } | null>(null)
 
-  const paint = useCallback((next: Point, nextScale: number) => {
+  const captureNatural = useCallback(() => {
     const node = imageRef.current
-    if (!node) return
-    node.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${nextScale})`
+    if (!node) return null
+    if (!naturalRef.current && node.offsetWidth > 0) {
+      naturalRef.current = { height: node.offsetHeight, width: node.offsetWidth }
+    }
+    return naturalRef.current
   }, [])
+
+  const paint = useCallback(
+    (next: Point, nextScale: number) => {
+      const node = imageRef.current
+      if (!node) return
+      if (vector) {
+        const natural = captureNatural()
+        if (natural) {
+          // Re-layout at the new size: the renderer redraws the vector sharp.
+          node.style.width = `${natural.width * nextScale}px`
+          node.style.height = `${natural.height * nextScale}px`
+          node.style.maxWidth = nextScale > MIN_ZOOM ? 'none' : ''
+          node.style.maxHeight = nextScale > MIN_ZOOM ? 'none' : ''
+        }
+        node.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`
+        return
+      }
+      node.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${nextScale})`
+    },
+    [captureNatural, vector]
+  )
 
   const baseSize = useCallback((): { height: number; width: number } => {
     const node = imageRef.current
     if (!node) return { height: 0, width: 0 }
+    // The pan bounds are computed from the FIT size in both modes: for a vector
+    // the node has already grown, so reading it back would square the scale.
+    if (vector) return captureNatural() ?? { height: node.offsetHeight, width: node.offsetWidth }
     // offsetWidth/Height are the *laid-out* box, unaffected by the transform —
     // reading getBoundingClientRect here would compound the current scale.
     return { height: node.offsetHeight, width: node.offsetWidth }
-  }, [])
+  }, [captureNatural, vector])
 
   const apply = useCallback(
     (next: Point, nextScale: number) => {
@@ -54,9 +90,19 @@ export function useImageZoom(active: boolean) {
 
   const reset = useCallback(() => {
     offsetRef.current = ORIGIN
-    paint(ORIGIN, MIN_ZOOM)
+    const node = imageRef.current
+    if (node && vector) {
+      // Hand the box back to the stylesheet; the fit classes take over again.
+      node.style.width = ''
+      node.style.height = ''
+      node.style.maxWidth = ''
+      node.style.maxHeight = ''
+      node.style.transform = 'translate3d(0px, 0px, 0)'
+    } else {
+      paint(ORIGIN, MIN_ZOOM)
+    }
     setScale(MIN_ZOOM)
-  }, [paint])
+  }, [paint, vector])
 
   /** Zoom from a control, anchored at the image's center. */
   const zoomByStep = useCallback(

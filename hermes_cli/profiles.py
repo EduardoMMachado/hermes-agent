@@ -854,14 +854,13 @@ def _clone_all_into(source_dir: Path, profile_dir: Path, canon: str) -> None:
         (profile_dir / stale).unlink(missing_ok=True)
     # auth.json / .anthropic_oauth.json copied verbatim fork single-use OAuth grants
     # (Anthropic / Codex / xAI): one credential with two owners, and the first profile to
-    # refresh revokes the pair for every sibling. Drop the copies; the clone reads the root
-    # grant through the credential-pool fallback.
+    # refresh revokes the pair for every sibling. Drop the copies; the clone signs in itself.
     from hermes_cli.auth import strip_cloned_single_use_oauth_grants
     stripped = strip_cloned_single_use_oauth_grants(profile_dir)
     if any(stripped.values()):
         logger.info(
             "profile %s: dropped cloned single-use OAuth grants %s "
-            "(inherits the root grant instead)", canon, stripped,
+            "(run `hermes -p %s auth add <provider>` to sign in)", canon, stripped, canon,
         )
 
 
@@ -1374,6 +1373,15 @@ def delete_profile(name: str, yes: bool = False) -> Path:
         _closed = _close_session_dbs_under(profile_dir)
         if _closed:
             print(f"✓ Released {_closed} session database connection(s) held by this process")
+
+    # The Desktop serve process routes its agent/errors logs for every profile through one
+    # QueueListener. On Windows those ConcurrentRotatingFileHandler instances retain their
+    # ``.__*.lock`` files until explicitly closed, so rmtree otherwise fails with WinError 32.
+    with contextlib.suppress(Exception):
+        from hermes_logging import release_profile_log_handlers
+        _released_logs = release_profile_log_handlers(profile_dir)
+        if _released_logs:
+            print(f"✓ Released {_released_logs} profile log handler(s) held by this process")
 
     # 3. Remove wrapper script
     if has_wrapper and remove_wrapper_script(canon):

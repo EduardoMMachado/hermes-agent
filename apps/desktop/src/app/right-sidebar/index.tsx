@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import type { ComponentProps } from 'react'
+import { type ComponentProps, useEffect } from 'react'
 
 import { TreeSkeleton } from '@/components/chat/skeletons'
 import { ErrorBoundary } from '@/components/error-boundary'
@@ -12,6 +12,7 @@ import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { cn } from '@/lib/utils'
 import { $panesFlipped } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
+import { $previewTarget } from '@/store/preview'
 import { openPreview } from '@/store/preview'
 import { $currentCwd, $selectedStoredSessionId, $workspaceCwdOwner } from '@/store/session'
 
@@ -46,10 +47,23 @@ export function RightSidebarPane({ onActivateFile, onActivateFolder }: RightSide
     loadChildren,
     openState,
     refreshRoot,
+    revealPath,
     rootError,
     rootLoading,
     setNodeOpen
   } = useProjectTree(hasWorkspace ? currentCwd : '')
+
+  // Follow the active preview: whatever is open gets revealed and highlighted
+  // in the tree, the way an editor keeps the explorer pointed at the file you
+  // are looking at. Only file targets have a place here — a URL preview does
+  // not live in the workspace.
+  const previewTarget = useStore($previewTarget)
+  const activeFilePath = previewTarget?.kind === 'file' ? previewTarget.path : null
+
+  useEffect(() => {
+    if (!activeFilePath || !effectiveCwd) return
+    void revealPath(activeFilePath)
+  }, [activeFilePath, effectiveCwd, revealPath])
 
   const cwdName =
     effectiveCwd
@@ -84,6 +98,7 @@ export function RightSidebarPane({ onActivateFile, onActivateFolder }: RightSide
       )}
     >
       <FilesystemTab
+        activePath={activeFilePath}
         canCollapse={canCollapse}
         collapseNonce={collapseNonce}
         cwd={effectiveCwd}
@@ -121,6 +136,7 @@ const HEADER_ACTION_CLASS =
 const HEADER_ACTION_LABEL_REVEAL = `${HEADER_ACTION_CLASS} pointer-events-none opacity-0 transition-opacity focus-visible:pointer-events-auto focus-visible:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100`
 
 function FilesystemTab({
+  activePath,
   canCollapse,
   collapseNonce,
   cwd,
@@ -179,6 +195,7 @@ function FilesystemTab({
         </Tip>
       </RightSidebarSectionHeader>
       <FileTreeBody
+        activePath={activePath}
         collapseNonce={collapseNonce}
         cwd={cwd}
         data={data}
@@ -205,6 +222,8 @@ export function RightSidebarSectionHeader({ children, className, ...props }: Com
 }
 
 interface FileTreeBodyProps {
+  /** File currently open in the preview, highlighted and scrolled into view. */
+  activePath?: string | null
   collapseNonce: number
   cwd: string
   data: ReturnType<typeof useProjectTree>['data']
@@ -222,6 +241,7 @@ interface FileTreeBodyProps {
 }
 
 function FileTreeBody({
+  activePath,
   collapseNonce,
   cwd,
   data,
@@ -288,6 +308,7 @@ function FileTreeBody({
       label="file-tree"
     >
       <ProjectTree
+        activePath={activePath}
         collapseNonce={collapseNonce}
         cwd={cwd}
         data={data}

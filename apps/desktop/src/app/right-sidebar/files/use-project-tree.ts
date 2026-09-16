@@ -7,6 +7,7 @@ import { $connection } from '@/store/session'
 import { $workspaceChangeTick, consumeWorkspaceChange } from '@/store/workspace-events'
 
 import { clearProjectDirCache, type ProjectTreeEntry, readProjectDir } from './ipc'
+import { ancestorPaths, openStateForReveal } from './reveal'
 
 export interface TreeNode {
   /** Absolute filesystem path. Doubles as react-arborist node id. */
@@ -107,6 +108,8 @@ export interface UseProjectTreeResult {
   collapseAll: () => void
   loadChildren: (id: string) => Promise<void>
   refreshRoot: () => Promise<void>
+  /** Open the folders leading to a path and load their children. */
+  revealPath: (path: string) => Promise<void>
   setNodeOpen: (id: string, open: boolean) => void
 }
 
@@ -465,6 +468,32 @@ export function useProjectTree(cwd: string): UseProjectTreeResult {
     [connectionKey, cwd]
   )
 
+  /**
+   * Open every folder on the way to `path` and make sure its children are
+   * loaded, so the row actually exists for the tree to select and scroll to.
+   *
+   * Sequential on purpose: the tree loads lazily, so `src/app` can only be
+   * fetched once `src` has resolved. Firing these in parallel races the child
+   * lists and leaves gaps in the chain.
+   */
+  const revealPath = useCallback(
+    async (path: string) => {
+      const folders = ancestorPaths(path, cwd)
+      if (folders.length === 0) return
+
+      setProjectTree(current => {
+        if (current.cwd !== cwd) return current
+        const nextOpen = openStateForReveal(path, cwd, current.openState)
+        return nextOpen === current.openState ? current : { ...current, openState: nextOpen }
+      })
+
+      for (const folder of folders) {
+        await loadChildren(folder)
+      }
+    },
+    [cwd, loadChildren]
+  )
+
   // Live, non-destructive refresh when the agent touches the tree (skip the
   // very first render: tick 0 is the initial value, not a real change).
   useEffect(() => {
@@ -539,6 +568,7 @@ export function useProjectTree(cwd: string): UseProjectTreeResult {
       loadChildren,
       openState: state.cwd === cwd ? state.openState : {},
       refreshRoot,
+      revealPath,
       rootError: state.cwd === cwd ? state.rootError : null,
       rootLoading: state.cwd === cwd ? state.rootLoading : Boolean(cwd),
       setNodeOpen
@@ -548,6 +578,7 @@ export function useProjectTree(cwd: string): UseProjectTreeResult {
       cwd,
       loadChildren,
       refreshRoot,
+      revealPath,
       setNodeOpen,
       state.collapseNonce,
       state.cwd,

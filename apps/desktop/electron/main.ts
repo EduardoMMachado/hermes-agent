@@ -204,6 +204,7 @@ import {
 import { createFirstRunSetupGate } from './first-run-setup-gate'
 import { registerFsIpc } from './fs-ipc'
 import { registerPlantumlIpc } from './plantuml-ipc'
+import { isPlantumlPath } from './plantuml-render'
 import {
   filenameFromContentDisposition,
   fsPumpDeps,
@@ -6373,7 +6374,21 @@ async function previewFileTarget(rawTarget, baseDir) {
   const isHtml = PREVIEW_HTML_EXTENSIONS.has(ext)
   const isImage = mimeType.startsWith('image/')
   const isPdf = PREVIEW_PDF_EXTENSIONS.has(ext) || mimeType === 'application/pdf'
-  const previewKind = isHtml ? 'html' : isImage ? 'image' : isPdf ? 'pdf' : metadata.binary ? 'binary' : 'text'
+  // A PlantUML source is classified here, not only in the renderer's fallback:
+  // this IPC is the preferred path, and the fallback only runs on an older
+  // shell that lacks it.
+  const isDiagram = isPlantumlPath(resolved)
+  const previewKind = isDiagram
+    ? 'diagram'
+    : isHtml
+      ? 'html'
+      : isImage
+        ? 'image'
+        : isPdf
+          ? 'pdf'
+          : metadata.binary
+            ? 'binary'
+            : 'text'
 
   return {
     binary: metadata.binary,

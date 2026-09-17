@@ -89,3 +89,22 @@ describe('resolveDiagramLink', () => {
     expect(resolveDiagramLink(L2, '   ')).toBeNull()
   })
 })
+
+// The regression this pins: previewKind is decided in TWO places — this
+// predicate feeds the main process's normalizePreviewTarget (the preferred
+// path) while the renderer keeps its own list for older shells. A source
+// classified as text there renders as code, which is exactly what shipped.
+describe('classification parity', () => {
+  it('claims every extension the renderer fallback claims', () => {
+    // Mirrors DIAGRAM_EXTENSIONS in src/lib/local-preview.ts.
+    for (const ext of ['.iuml', '.plantuml', '.pu', '.puml', '.wsd']) {
+      expect(isPlantumlPath(`/repo/diagram${ext}`)).toBe(true)
+    }
+  })
+
+  it('leaves the other preview kinds alone', () => {
+    for (const ext of ['.html', '.pdf', '.png', '.svg', '.md']) {
+      expect(isPlantumlPath(`/repo/file${ext}`)).toBe(false)
+    }
+  })
+})

@@ -4,9 +4,11 @@
 // tested there; this owns the child process and the path hardening.
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import path from 'node:path'
 
 import { ipcMain } from 'electron'
 
+import { POSIX_SANE_PATH_ENTRIES } from './backend-env'
 import { isPlantumlPath, isRenderError, plantumlArgs, renderCwd } from './plantuml-render'
 
 export interface PlantumlIpcDeps {
@@ -34,6 +36,22 @@ export function registerPlantumlIpc({ expandUserPath, findOnPath, resolveRequest
   const resolveBinary = () => {
     if (binaryCache === undefined) {
       binaryCache = findOnPath('plantuml')
+
+      // A Finder/Dock launch inherits only /usr/bin:/bin:/usr/sbin:/sbin, which
+      // is where Homebrew is NOT — so `plantuml` looks missing on a machine
+      // that has it installed. Check the standard prefixes directly, the same
+      // surface buildDesktopBackendPath hands the Python backend.
+      if (!binaryCache) {
+        for (const dir of POSIX_SANE_PATH_ENTRIES) {
+          const candidate = path.join(dir, 'plantuml')
+
+          if (fs.existsSync(candidate)) {
+            binaryCache = candidate
+
+            break
+          }
+        }
+      }
     }
 
     return binaryCache

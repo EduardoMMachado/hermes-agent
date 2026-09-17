@@ -293,6 +293,10 @@ declare global {
         set: (maxMb: number) => Promise<{ defaultMaxMb: number; maxBytes: number; maxMb: number }>
       }
       readFileText: (filePath: string) => Promise<HermesReadFileTextResult>
+      /** Render a PlantUML source to SVG on demand. Absent on older shells —
+       *  callers must treat a missing method as "cannot preview diagrams"
+       *  rather than as a render failure. */
+      renderPlantuml?: (filePath: string) => Promise<{ error?: string; svg?: string }>
       /** Full-source read for runtime desktop plugins (readFileText truncates
        *  at the 512 KiB preview cap). Absent on older shells — callers fall
        *  back to readFileText and must reject a `truncated` result. */

@@ -203,6 +203,7 @@ import {
 } from './find-in-page'
 import { createFirstRunSetupGate } from './first-run-setup-gate'
 import { registerFsIpc } from './fs-ipc'
+import { registerPlantumlIpc } from './plantuml-ipc'
 import {
   filenameFromContentDisposition,
   fsPumpDeps,
@@ -17777,6 +17778,9 @@ registerFsIpc({
 
 // Git-driven features (worktrees, review pane, repo scan) — see git-ipc.ts.
 registerGitIpc({ resolveGitBinary, resolveGhBinary })
+
+// PlantUML sources render on demand for the preview pane — see plantuml-ipc.ts.
+registerPlantumlIpc({ expandUserPath, findOnPath, resolveRequestedPathForIpc })
 
 // Client-side loopback callback for MCP OAuth against remote backends — see
 // mcp-oauth-callback-ipc.ts.

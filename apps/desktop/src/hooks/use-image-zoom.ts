@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
-  MAX_ZOOM,
-  MIN_ZOOM,
-  type Point,
-  ZOOM_STEP,
   clampPan,
   clampZoom,
   isTypingTarget,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  type Point,
+  type Size,
+  ZOOM_STEP,
   zoomAtPoint,
   zoomFromWheel
 } from '@/lib/image-zoom'
@@ -81,14 +82,24 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
     return { height: node.offsetHeight, width: node.offsetWidth }
   }, [captureNatural, vector])
 
+  /** What the user can actually see. The overflow that panning may reach is
+   *  measured against this, not against the baseline box: a surface that starts
+   *  shrunk to fit (a diagram) has a baseline bigger than the viewport, and
+   *  conflating the two pins its edges out of reach. */
+  const viewportSize = useCallback((): Size | undefined => {
+    const container = containerRef.current
+    if (!container) return undefined
+    return { height: container.clientHeight, width: container.clientWidth }
+  }, [])
+
   const apply = useCallback(
     (next: Point, nextScale: number) => {
-      const clamped = clampPan(next, baseSize(), nextScale)
+      const clamped = clampPan(next, baseSize(), nextScale, viewportSize())
       offsetRef.current = clamped
       paint(clamped, nextScale)
       setScale(nextScale)
     },
-    [baseSize, paint]
+    [baseSize, paint, viewportSize]
   )
 
   const reset = useCallback(() => {
@@ -118,13 +129,13 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
       setScale(prev => {
         const next = clampZoom(prev * factor)
         const scaled = { x: (offsetRef.current.x * next) / prev, y: (offsetRef.current.y * next) / prev }
-        const clamped = clampPan(scaled, baseSize(), next)
+        const clamped = clampPan(scaled, baseSize(), next, viewportSize())
         offsetRef.current = clamped
         paint(clamped, next)
         return next
       })
     },
-    [baseSize, paint]
+    [baseSize, paint, viewportSize]
   )
 
   const zoomIn = useCallback(() => zoomByStep(ZOOM_STEP), [zoomByStep])
@@ -178,12 +189,13 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
           y: drag.origin.y + (event.clientY - drag.start.y)
         },
         baseSize(),
-        scale
+        scale,
+        viewportSize()
       )
       offsetRef.current = next
       paint(next, scale)
     },
-    [baseSize, paint, scale]
+    [baseSize, paint, scale, viewportSize]
   )
 
   const endDrag = useCallback((event: React.PointerEvent<HTMLImageElement>) => {

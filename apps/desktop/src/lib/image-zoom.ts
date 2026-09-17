@@ -80,17 +80,27 @@ export function zoomFromWheel(scale: number, deltaY: number): number {
 /**
  * How far the image may travel from center on one axis.
  *
- * Only the overflow is reachable: at fit (scale 1) there is none, so panning is
- * pinned to center and the image can never be dragged off-screen.
+ * Only the overflow is reachable: whatever sticks out past the viewport, split
+ * between the two sides. `viewportSize` is what the user can actually see.
+ *
+ * It defaults to `baseSize` because that is true for the lightbox and the image
+ * pane, where the element starts filling its container — there, grown size is
+ * `base * scale` and the overflow is `(base * scale - base) / 2`. It is NOT
+ * true for a diagram, which starts shrunk to fit: a 1000px drawing displayed at
+ * 500px still has a 1000px baseline, so assuming the two are equal understates
+ * the overflow and leaves the edges of a zoomed diagram unreachable.
  */
-export function maxPanOffset(baseSize: number, scale: number): number {
+export function maxPanOffset(baseSize: number, scale: number, viewportSize = baseSize): number {
   if (!Number.isFinite(baseSize) || baseSize <= 0) return 0
-  return Math.max(0, (baseSize * clampZoom(scale) - baseSize) / 2)
+
+  const visible = Number.isFinite(viewportSize) && viewportSize > 0 ? viewportSize : baseSize
+
+  return Math.max(0, (baseSize * clampZoom(scale) - visible) / 2)
 }
 
-export function clampPan(offset: Point, base: Size, scale: number): Point {
-  const maxX = maxPanOffset(base.width, scale)
-  const maxY = maxPanOffset(base.height, scale)
+export function clampPan(offset: Point, base: Size, scale: number, viewport?: Size): Point {
+  const maxX = maxPanOffset(base.width, scale, viewport?.width)
+  const maxY = maxPanOffset(base.height, scale, viewport?.height)
   return {
     x: Math.min(maxX, Math.max(-maxX, offset.x)),
     y: Math.min(maxY, Math.max(-maxY, offset.y))

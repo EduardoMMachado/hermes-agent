@@ -92,25 +92,48 @@ export function useDiagramZoom(natural: null | Size) {
     }
   }, [fitted, pane])
 
-  const onWheel = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
-      if (!fitted || !pane) {
+  // Wheel is bound natively, NOT through React's onWheel prop. React attaches
+  // wheel listeners passively, which makes preventDefault() a silent no-op: the
+  // browser then also applies its own scroll to an ancestor, and a trackpad's
+  // two-finger gesture carries deltaX as well as deltaY — so the drawing drifts
+  // diagonally while zooming. Same reason use-pet-zoom-gesture and the annotate
+  // overlay bind their own wheel handlers with { passive: false }.
+  //
+  // Bound to the node alone, with the boxes read from refs at event time: tying
+  // this to `fitted`/`pane` would leave the pane scrollable until the first
+  // measurement lands, and re-subscribe on every resize.
+  const boxesRef = useRef<{ fitted: null | Size; pane: null | Size }>({ fitted: null, pane: null })
+
+  boxesRef.current = { fitted, pane }
+
+  useEffect(() => {
+    const node = paneRef.current
+
+    if (!node) {
+      return
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      // Claim the gesture even before the first measurement, so the rail never
+      // scrolls underneath a diagram.
+      event.preventDefault()
+
+      const { fitted: currentFitted, pane: currentPane } = boxesRef.current
+
+      if (!currentFitted || !currentPane) {
         return
       }
 
-      // The pane owns the gesture: without this the rail scrolls underneath and
-      // the diagram appears to jump.
-      event.preventDefault()
+      const rect = node.getBoundingClientRect()
+      const focus = { x: event.clientX - rect.left, y: event.clientY - rect.top }
 
-      const rect = paneRef.current?.getBoundingClientRect()
-      const focus = rect
-        ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
-        : { x: pane.width / 2, y: pane.height / 2 }
+      setView(prev => zoomTo(prev, scaleFromWheel(prev.scale, event.deltaY), focus, currentFitted, currentPane))
+    }
 
-      setView(prev => zoomTo(prev, scaleFromWheel(prev.scale, event.deltaY), focus, fitted, pane))
-    },
-    [fitted, pane]
-  )
+    node.addEventListener('wheel', onWheel, { passive: false })
+
+    return () => node.removeEventListener('wheel', onWheel)
+  }, [])
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -186,7 +209,6 @@ export function useDiagramZoom(natural: null | Size) {
     isZoomed: view.scale > MIN_SCALE,
     onPointerDown,
     onPointerMove,
-    onWheel,
     paneRef,
     pannable,
     ready,

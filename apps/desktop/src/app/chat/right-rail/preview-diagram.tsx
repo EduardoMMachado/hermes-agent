@@ -199,7 +199,6 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
           onPointerDown={zoom.onPointerDown}
           onPointerMove={zoom.onPointerMove}
           onPointerUp={zoom.endDrag}
-          onWheel={zoom.onWheel}
           ref={zoom.paneRef}
         >
           {/* Absolutely positioned, NOT flex-centred: the hook's translate is

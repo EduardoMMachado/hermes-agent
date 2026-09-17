@@ -308,7 +308,6 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   },
   readFileText: filePath => ipcRenderer.invoke('hermes:readFileText', filePath),
   readPluginSource: (filePath: string) => ipcRenderer.invoke('hermes:readPluginSource', filePath),
-  renderPlantuml: (filePath: string) => ipcRenderer.invoke('hermes:plantuml:render', filePath),
   selectPaths: options => ipcRenderer.invoke('hermes:selectPaths', options),
   selectSavePath: options => ipcRenderer.invoke('hermes:selectSavePath', options),
   writeClipboard: text => ipcRenderer.invoke('hermes:writeClipboard', text),

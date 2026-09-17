@@ -1341,15 +1341,7 @@ export function PreviewPane({ embedded = false, onRestartServer, reloadRequest =
             (target.kind === 'artifact' ? (
               <ArtifactPreview target={target} />
             ) : (
-              // `absolute inset-0` pins this to the pane's own box. Without it
-              // the wrapper is a plain block that grows with its content, and a
-              // surface that measures itself to decide a fit — the diagram
-              // viewer — reads the drawing's own height back as the available
-              // height, concludes nothing needs shrinking, and renders the
-              // diagram overflowing the window.
-              <div className="absolute inset-0">
-                <LocalFilePreview reloadKey={localReloadKey} target={target} />
-              </div>
+              <LocalFilePreview reloadKey={localReloadKey} target={target} />
             ))}
           {isBlankPage && (
             <div className="absolute inset-0 grid bg-background">

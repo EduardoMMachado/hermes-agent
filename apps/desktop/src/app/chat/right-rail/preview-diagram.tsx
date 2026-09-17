@@ -43,6 +43,8 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
   const [history, setHistory] = useState<DiagramHistory>(() => startHistory(path))
   const [state, setState] = useState<RenderState>({ loading: true })
   const hostRef = useRef<HTMLDivElement | null>(null)
+  // The visible area the drawing is fitted into.
+  const paneRef = useRef<HTMLDivElement | null>(null)
   const active = currentEntry(history) ?? path
 
   // A new file from outside the pane starts a new trail: "back" must never
@@ -104,18 +106,55 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
   }, [clean])
 
-  // The zoom hook measures the wrapper with offsetWidth and remembers that
-  // first reading as the 100% baseline, so the wrapper must already be the
-  // size the diagram wants. An aspect-ratio alone is not a size: the box
-  // collapses to whatever the flex parent grants, which is why a drawing
-  // opened small and then had almost nothing to pan.
-  const natural = useMemo(() => {
+  // The drawing's own dimensions, straight from the SVG.
+  const viewBox = useMemo(() => {
     const box = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(clean)
     const width = Number(box?.[1])
     const height = Number(box?.[2])
 
     return width > 0 && height > 0 ? { height, width } : null
   }, [clean])
+
+  // Scale 1 has to BE the fitted size, not the drawing's full size. The zoom
+  // multiplies this box, and a box the pane is visually shrinking (via
+  // max-width) is one the user never sees at the size the maths assumes: a
+  // 1000px drawing in a 500px pane would spend its first zoom steps merely
+  // undoing the shrink, which reads as the diagram shifting rather than
+  // growing. Compute the contained size once the pane is measured, and never
+  // enlarge past the drawing's own size.
+  const [paneSize, setPaneSize] = useState<null | { height: number; width: number }>(null)
+
+  useEffect(() => {
+    const pane = paneRef.current
+
+    if (!pane) {
+      return
+    }
+
+    const measure = () => setPaneSize({ height: pane.clientHeight, width: pane.clientWidth })
+
+    measure()
+
+    const observer = new ResizeObserver(measure)
+
+    observer.observe(pane)
+
+    return () => observer.disconnect()
+  }, [clean])
+
+  const natural = useMemo(() => {
+    if (!viewBox) {
+      return null
+    }
+
+    if (!paneSize || paneSize.width <= 0 || paneSize.height <= 0) {
+      return viewBox
+    }
+
+    const factor = Math.min(paneSize.width / viewBox.width, paneSize.height / viewBox.height, 1)
+
+    return { height: Math.round(viewBox.height * factor), width: Math.round(viewBox.width * factor) }
+  }, [paneSize, viewBox])
 
   // Vector source: the zoom scales layout rather than transform, so the diagram
   // stays sharp at any magnification. The natural size is handed over rather
@@ -221,6 +260,10 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
           className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4"
           onWheel={zoom.onWheel}
           {...zoom.containerProps}
+          ref={node => {
+            paneRef.current = node
+            zoom.containerProps.ref.current = node
+          }}
         >
           {/* The zoom hook drives this node's own style box, so it has to carry
               `imageRef` exactly as the <img> preview does — without the ref it
@@ -237,7 +280,7 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
               // the diagram sliding around instead of magnifying. The <img>
               // preview needs no such guard: a replaced element's automatic
               // minimum size is its intrinsic size, so flex cannot squeeze it.
-              'max-h-full max-w-full shrink-0 [&_a]:cursor-pointer [&_svg]:block [&_svg]:h-full [&_svg]:w-full',
+              'shrink-0 [&_a]:cursor-pointer [&_svg]:block [&_svg]:h-full [&_svg]:w-full',
               zoom.isZoomed && 'cursor-grab active:cursor-grabbing'
             )}
             dangerouslySetInnerHTML={{ __html: clean }}

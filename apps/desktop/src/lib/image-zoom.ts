@@ -134,11 +134,12 @@ export function zoomAtPoint(
   offset: Point,
   prevScale: number,
   nextScale: number,
-  base: Size
+  base: Size,
+  viewport?: Size
 ): { offset: Point; scale: number } {
   const scale = clampZoom(nextScale)
   return {
-    offset: clampPan(panForZoomAtPoint(cursor, offset, prevScale, scale), base, scale),
+    offset: clampPan(panForZoomAtPoint(cursor, offset, prevScale, scale), base, scale, viewport),
     scale
   }
 }

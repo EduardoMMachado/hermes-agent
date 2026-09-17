@@ -175,12 +175,12 @@ export function useImageZoom(active: boolean, vector = false, modal = false, nat
         y: event.clientY - (rect.top + rect.height / 2)
       }
       const next = zoomFromWheel(scale, event.deltaY)
-      const result = zoomAtPoint(cursor, offsetRef.current, scale, next, baseSize())
+      const result = zoomAtPoint(cursor, offsetRef.current, scale, next, baseSize(), viewportSize())
       offsetRef.current = result.offset
       paint(result.offset, result.scale)
       setScale(result.scale)
     },
-    [baseSize, paint, scale]
+    [baseSize, paint, scale, viewportSize]
   )
 
   const onPointerDown = useCallback(

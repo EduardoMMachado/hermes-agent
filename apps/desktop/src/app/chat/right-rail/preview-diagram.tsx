@@ -226,7 +226,14 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
           <div
             aria-label={label}
             className={cn(
-              'max-h-full max-w-full [&_a]:cursor-pointer [&_svg]:block [&_svg]:h-full [&_svg]:w-full',
+              // `shrink-0` is load-bearing. This is a flex item, and the vector
+              // zoom works by GROWING the box (layout) rather than transforming
+              // it — so without it flex shrinks the box straight back to the
+              // pane's width and only the pan offset survives, which reads as
+              // the diagram sliding around instead of magnifying. The <img>
+              // preview needs no such guard: a replaced element's automatic
+              // minimum size is its intrinsic size, so flex cannot squeeze it.
+              'max-h-full max-w-full shrink-0 [&_a]:cursor-pointer [&_svg]:block [&_svg]:h-full [&_svg]:w-full',
               zoom.isZoomed && 'cursor-grab active:cursor-grabbing'
             )}
             dangerouslySetInnerHTML={{ __html: clean }}

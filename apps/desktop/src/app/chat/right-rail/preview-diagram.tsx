@@ -124,9 +124,16 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
   // The hook caches the baseline on first measure and never clears it, so a
   // second diagram would be panned against the first one's dimensions. Reset
   // on every new drawing: same reason the trail restarts on a new file.
+  //
+  // Depend on `zoom.reset`, never on `zoom`: the hook returns a fresh object
+  // literal every render, so the whole object as a dependency re-runs this on
+  // each render — including the one caused by zooming — and every zoom snapped
+  // straight back to 100%. `reset` itself is a stable useCallback.
+  const resetZoom = zoom.reset
+
   useEffect(() => {
-    zoom.reset()
-  }, [clean, zoom])
+    resetZoom()
+  }, [clean, resetZoom])
 
   // Intercept clicks on the diagram's own links. Delegated from the host so it
   // survives every re-render, and captured before the anchor's default, which

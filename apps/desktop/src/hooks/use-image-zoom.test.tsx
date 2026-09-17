@@ -93,4 +93,36 @@ describe('useImageZoom on a vector surface', () => {
     expect(zoom!.canZoomOut).toBe(false)
     expect(zoom!.isZoomed).toBe(false)
   })
+
+  // The regression this pins: the hook returns a fresh object literal every
+  // render. A consumer that resets when its content changes must depend on
+  // `reset`, not on the whole zoom object — otherwise the effect re-runs on
+  // the very render that zooming causes, and every zoom snaps back to 100%.
+  it('exposes a reset that is stable across renders', () => {
+    const seen: unknown[] = []
+
+    function Collect() {
+      const zoom = useImageZoom(true, true)
+
+      seen.push(zoom.reset)
+
+      return (
+        <div {...zoom.containerProps}>
+          <button data-testid="zin" onClick={zoom.zoomIn} type="button" />
+          <div
+            ref={node => {
+              zoom.imageRef.current = node as unknown as HTMLImageElement | null
+            }}
+          />
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<Collect />)
+
+    act(() => getByTestId('zin').click())
+
+    expect(seen.length).toBeGreaterThan(1)
+    expect(new Set(seen).size).toBe(1)
+  })
 })

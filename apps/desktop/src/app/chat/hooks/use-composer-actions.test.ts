@@ -302,12 +302,14 @@ describe('useComposerActions native image drops', () => {
     const saveImageBuffer = vi.fn(() => new Promise<string>(resolve => { finishSave = resolve }))
     const add = vi.fn()
     Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: { saveImageBuffer } })
+
     const { result } = renderHook(() => useComposerActions({
       activeSessionId: null,
       currentCwd: '/test',
       requestGateway: vi.fn(),
       scope: { add, remove: vi.fn(() => null), target: 'main', update: vi.fn(() => true), updateIfCurrent: vi.fn(() => true) }
     }))
+
     let current = true
     const pending = result.current.attachImageBlob(new Blob([new Uint8Array([1])], { type: 'image/png' }), () => current)
     await vi.waitFor(() => expect(saveImageBuffer).toHaveBeenCalledOnce())

@@ -272,6 +272,7 @@ describe('PluginsTab', () => {
       repo: 'https://github.com/example/plugins-monorepo',
       subdir: 'packages/nested-plugin'
     }
+
     seedCatalog([entry])
     renderPlugins({ profile: null })
 
@@ -303,6 +304,7 @@ describe('PluginsTab catalog UX', () => {
       ok: true,
       json: async () => [weatherEntry, { ...weatherEntry, name: 'garden-plugin', category: 'garden', description: 'Garden planning' }]
     })
+
     vi.stubGlobal('fetch', fetchCatalog)
     await act(async () => { renderPlugins({ profile: null }) })
 
@@ -332,6 +334,7 @@ describe('PluginsTab catalog UX', () => {
     const fetchCatalog = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 503 })
       .mockResolvedValue({ ok: true, json: async () => [weatherEntry] })
+
     vi.stubGlobal('fetch', fetchCatalog)
     await act(async () => { renderPlugins({ profile: null }) })
     fireEvent.click(screen.getByRole('button', { name: 'Browse' }))

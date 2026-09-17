@@ -75,13 +75,17 @@ export function ProjectTree({
   const lastRevealedRef = useRef<string | null>(null)
   useEffect(() => {
     const tree = treeRef.current
+
     if (!tree || !activePath) {
-      if (!activePath) lastRevealedRef.current = null
+      if (!activePath) {lastRevealedRef.current = null}
+
       return
     }
-    if (!tree.get(activePath)) return
+
+    if (!tree.get(activePath)) {return}
 
     tree.select(activePath, { align: 'auto' })
+
     if (lastRevealedRef.current !== activePath) {
       lastRevealedRef.current = activePath
       tree.scrollTo(activePath, 'auto')

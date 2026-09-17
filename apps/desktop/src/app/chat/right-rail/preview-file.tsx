@@ -465,6 +465,7 @@ function PreviewZoomButton({
 
 function MarkdownLink({ children, className, href, ...rest }: ComponentProps<'a'>) {
   const isExternal = /^https?:\/\//i.test(href || '')
+
   return (
     <a
       className={cn('text-foreground underline underline-offset-2 hover:text-primary', className)}

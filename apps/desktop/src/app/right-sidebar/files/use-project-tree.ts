@@ -479,11 +479,13 @@ export function useProjectTree(cwd: string): UseProjectTreeResult {
   const revealPath = useCallback(
     async (path: string) => {
       const folders = ancestorPaths(path, cwd)
-      if (folders.length === 0) return
+
+      if (folders.length === 0) {return}
 
       setProjectTree(current => {
-        if (current.cwd !== cwd) return current
+        if (current.cwd !== cwd) {return current}
         const nextOpen = openStateForReveal(path, cwd, current.openState)
+
         return nextOpen === current.openState ? current : { ...current, openState: nextOpen }
       })
 

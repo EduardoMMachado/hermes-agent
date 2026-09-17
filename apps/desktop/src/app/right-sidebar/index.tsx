@@ -61,7 +61,7 @@ export function RightSidebarPane({ onActivateFile, onActivateFolder }: RightSide
   const activeFilePath = previewTarget?.kind === 'file' ? previewTarget.path : null
 
   useEffect(() => {
-    if (!activeFilePath || !effectiveCwd) return
+    if (!activeFilePath || !effectiveCwd) {return}
     void revealPath(activeFilePath)
   }, [activeFilePath, effectiveCwd, revealPath])
 

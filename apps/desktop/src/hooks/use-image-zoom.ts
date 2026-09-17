@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
+  clampPan,
+  clampZoom,
+  isTypingTarget,
   MAX_ZOOM,
   MIN_ZOOM,
   type Point,
   ZOOM_STEP,
-  clampPan,
-  clampZoom,
-  isTypingTarget,
   zoomAtPoint,
   zoomFromWheel
 } from '@/lib/image-zoom'
@@ -42,19 +42,25 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
 
   const captureNatural = useCallback(() => {
     const node = imageRef.current
-    if (!node) return null
+
+    if (!node) {return null}
+
     if (!naturalRef.current && node.offsetWidth > 0) {
       naturalRef.current = { height: node.offsetHeight, width: node.offsetWidth }
     }
+
     return naturalRef.current
   }, [])
 
   const paint = useCallback(
     (next: Point, nextScale: number) => {
       const node = imageRef.current
-      if (!node) return
+
+      if (!node) {return}
+
       if (vector) {
         const natural = captureNatural()
+
         if (natural) {
           // Re-layout at the new size: the renderer redraws the vector sharp.
           node.style.width = `${natural.width * nextScale}px`
@@ -62,9 +68,12 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
           node.style.maxWidth = nextScale > MIN_ZOOM ? 'none' : ''
           node.style.maxHeight = nextScale > MIN_ZOOM ? 'none' : ''
         }
+
         node.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`
+
         return
       }
+
       node.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${nextScale})`
     },
     [captureNatural, vector]
@@ -72,10 +81,13 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
 
   const baseSize = useCallback((): { height: number; width: number } => {
     const node = imageRef.current
-    if (!node) return { height: 0, width: 0 }
+
+    if (!node) {return { height: 0, width: 0 }}
+
     // The pan bounds are computed from the FIT size in both modes: for a vector
     // the node has already grown, so reading it back would square the scale.
-    if (vector) return captureNatural() ?? { height: node.offsetHeight, width: node.offsetWidth }
+    if (vector) {return captureNatural() ?? { height: node.offsetHeight, width: node.offsetWidth }}
+
     // offsetWidth/Height are the *laid-out* box, unaffected by the transform —
     // reading getBoundingClientRect here would compound the current scale.
     return { height: node.offsetHeight, width: node.offsetWidth }
@@ -94,6 +106,7 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
   const reset = useCallback(() => {
     offsetRef.current = ORIGIN
     const node = imageRef.current
+
     if (node && vector) {
       // Hand the box back to the stylesheet; the fit classes take over again.
       node.style.width = ''
@@ -104,6 +117,7 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
     } else {
       paint(ORIGIN, MIN_ZOOM)
     }
+
     setScale(MIN_ZOOM)
   }, [paint, vector])
 
@@ -116,6 +130,7 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
         const clamped = clampPan(scaled, baseSize(), next)
         offsetRef.current = clamped
         paint(clamped, next)
+
         return next
       })
     },
@@ -127,19 +142,22 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
 
   // Reopening must not inherit the last session's zoom.
   useEffect(() => {
-    if (!active) reset()
+    if (!active) {reset()}
   }, [active, reset])
 
   const onWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       event.preventDefault()
       const node = imageRef.current
-      if (!node) return
+
+      if (!node) {return}
       const rect = node.getBoundingClientRect()
+
       const cursor = {
         x: event.clientX - (rect.left + rect.width / 2),
         y: event.clientY - (rect.top + rect.height / 2)
       }
+
       const next = zoomFromWheel(scale, event.deltaY)
       const result = zoomAtPoint(cursor, offsetRef.current, scale, next, baseSize())
       offsetRef.current = result.offset
@@ -151,7 +169,7 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLImageElement>) => {
-      if (scale <= MIN_ZOOM || event.button !== 0) return
+      if (scale <= MIN_ZOOM || event.button !== 0) {return}
       event.preventDefault()
       dragRef.current = {
         origin: { ...offsetRef.current },
@@ -166,7 +184,9 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
   const onPointerMove = useCallback(
     (event: React.PointerEvent<HTMLImageElement>) => {
       const drag = dragRef.current
-      if (!drag || drag.pointerId !== event.pointerId) return
+
+      if (!drag || drag.pointerId !== event.pointerId) {return}
+
       const next = clampPan(
         {
           x: drag.origin.x + (event.clientX - drag.start.x),
@@ -175,6 +195,7 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
         baseSize(),
         scale
       )
+
       offsetRef.current = next
       paint(next, scale)
     },
@@ -183,8 +204,10 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
 
   const endDrag = useCallback((event: React.PointerEvent<HTMLImageElement>) => {
     const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
+
+    if (!drag || drag.pointerId !== event.pointerId) {return}
     dragRef.current = null
+
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
@@ -194,8 +217,8 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
   const isPanning = useCallback(() => dragRef.current !== null, [])
 
   const onDoubleClick = useCallback(() => {
-    if (scale > MIN_ZOOM) reset()
-    else apply(ORIGIN, clampZoom(MIN_ZOOM * ZOOM_STEP * ZOOM_STEP))
+    if (scale > MIN_ZOOM) {reset()}
+    else {apply(ORIGIN, clampZoom(MIN_ZOOM * ZOOM_STEP * ZOOM_STEP))}
   }, [apply, reset, scale])
 
   // Keyboard zoom, scoped so it never steals a character from the app.
@@ -205,18 +228,24 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
   // shortcut only applies while the pointer is over the image or the focus is
   // inside it. Either way, a typing target always wins.
   useEffect(() => {
-    if (!active) return
+    if (!active) {return}
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTypingTarget(event.target)) return
+      if (isTypingTarget(event.target)) {return}
+
       // A modifier means the user is asking the OS/app for something else
       // (browser zoom, a chord) — not for this image.
-      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.metaKey || event.ctrlKey || event.altKey) {return}
+
       if (!modal) {
         const container = containerRef.current
-        if (!container) return
+
+        if (!container) {return}
         const focusInside = container.contains(document.activeElement)
-        if (!hoverRef.current && !focusInside) return
+
+        if (!hoverRef.current && !focusInside) {return}
       }
+
       if (event.key === '+' || event.key === '=') {
         event.preventDefault()
         zoomIn()
@@ -228,7 +257,9 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
         reset()
       }
     }
+
     window.addEventListener('keydown', onKeyDown)
+
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [active, modal, reset, zoomIn, zoomOut])
 

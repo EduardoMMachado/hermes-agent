@@ -101,7 +101,7 @@ export function ImageLightbox({
             draggable={false}
             onClick={() => {
               // A drag that ends over the image must not read as a click-to-close.
-              if (!zoom.isPanning() && !zoom.isZoomed) onOpenChange(false)
+              if (!zoom.isPanning() && !zoom.isZoomed) {onOpenChange(false)}
             }}
             onDoubleClick={zoom.onDoubleClick}
             onPointerCancel={zoom.endDrag}

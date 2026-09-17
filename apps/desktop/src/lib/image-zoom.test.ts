@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MAX_ZOOM,
-  MIN_ZOOM,
-  ZOOM_STEP,
   clampPan,
   clampZoom,
-  isVectorSource,
   isTypingTarget,
+  isVectorSource,
+  MAX_ZOOM,
   maxPanOffset,
+  MIN_ZOOM,
+  ZOOM_STEP,
   zoomAtPoint,
   zoomBy,
   zoomFromWheel

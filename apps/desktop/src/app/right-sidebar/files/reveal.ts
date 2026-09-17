@@ -9,6 +9,7 @@
 /** POSIX and Windows separators, since a remote workspace may be either. */
 function splitPath(path: string): { sep: string; parts: string[] } {
   const sep = path.includes('\\') && !path.includes('/') ? '\\' : '/'
+
   return { parts: path.split(sep).filter(Boolean), sep }
 }
 
@@ -23,11 +24,13 @@ function splitPath(path: string): { sep: string; parts: string[] } {
  * place in this tree, and guessing one would scroll to an unrelated row.
  */
 export function ancestorPaths(path: string, root: string): string[] {
-  if (!path || !root) return []
+  if (!path || !root) {return []}
   const normalizedRoot = root.replace(/[/\\]+$/, '')
-  if (path === normalizedRoot) return []
+
+  if (path === normalizedRoot) {return []}
   const rootWithSep = normalizedRoot + (normalizedRoot.includes('\\') ? '\\' : '/')
-  if (!path.startsWith(rootWithSep)) return []
+
+  if (!path.startsWith(rootWithSep)) {return []}
 
   const relative = path.slice(rootWithSep.length)
   const { parts, sep } = splitPath(relative)
@@ -36,10 +39,12 @@ export function ancestorPaths(path: string, root: string): string[] {
 
   const result: string[] = []
   let current = normalizedRoot
+
   for (const part of folders) {
     current = current + sep + part
     result.push(current)
   }
+
   return result
 }
 
@@ -55,16 +60,19 @@ export function openStateForReveal(
   current: Record<string, boolean>
 ): Record<string, boolean> {
   const needed = ancestorPaths(path, root)
-  if (needed.length === 0) return current
+
+  if (needed.length === 0) {return current}
 
   let changed = false
   const next = { ...current }
+
   for (const folder of needed) {
     if (!next[folder]) {
       next[folder] = true
       changed = true
     }
   }
+
   // Preserve reference identity when nothing moved: the tree re-renders on a
   // new object, and an already-visible file is the common case.
   return changed ? next : current

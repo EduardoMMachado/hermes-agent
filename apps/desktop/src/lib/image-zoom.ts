@@ -18,9 +18,11 @@
  * vector at the new size — the whole reason to keep a diagram in SVG.
  */
 export function isVectorSource(src: string | undefined): boolean {
-  if (!src) return false
+  if (!src) {return false}
   const value = src.trim().toLowerCase()
-  if (value.startsWith('data:')) return value.startsWith('data:image/svg+xml')
+
+  if (value.startsWith('data:')) {return value.startsWith('data:image/svg+xml')}
+
   // Strip any query/fragment before testing the extension.
   return value.split(/[?#]/)[0].endsWith('.svg')
 }
@@ -33,9 +35,11 @@ export function isVectorSource(src: string | undefined): boolean {
  * from the composer, from search fields, from every text input on screen.
  */
 export function isTypingTarget(target: EventTarget | null): boolean {
-  if (!target || !(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return true
+  if (!target || !(target instanceof HTMLElement)) {return false}
+
+  if (target.isContentEditable) {return true}
   const tag = target.tagName
+
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 }
 
@@ -56,7 +60,8 @@ export interface Size {
 }
 
 export function clampZoom(scale: number): number {
-  if (!Number.isFinite(scale)) return MIN_ZOOM
+  if (!Number.isFinite(scale)) {return MIN_ZOOM}
+
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale))
 }
 
@@ -73,7 +78,8 @@ export function zoomBy(scale: number, factor: number): number {
  * addend).
  */
 export function zoomFromWheel(scale: number, deltaY: number): number {
-  if (!Number.isFinite(deltaY) || deltaY === 0) return clampZoom(scale)
+  if (!Number.isFinite(deltaY) || deltaY === 0) {return clampZoom(scale)}
+
   return clampZoom(scale * Math.exp(-deltaY / 320))
 }
 
@@ -84,13 +90,15 @@ export function zoomFromWheel(scale: number, deltaY: number): number {
  * pinned to center and the image can never be dragged off-screen.
  */
 export function maxPanOffset(baseSize: number, scale: number): number {
-  if (!Number.isFinite(baseSize) || baseSize <= 0) return 0
+  if (!Number.isFinite(baseSize) || baseSize <= 0) {return 0}
+
   return Math.max(0, (baseSize * clampZoom(scale) - baseSize) / 2)
 }
 
 export function clampPan(offset: Point, base: Size, scale: number): Point {
   const maxX = maxPanOffset(base.width, scale)
   const maxY = maxPanOffset(base.height, scale)
+
   return {
     x: Math.min(maxX, Math.max(-maxX, offset.x)),
     y: Math.min(maxY, Math.max(-maxY, offset.y))
@@ -110,8 +118,9 @@ export function panForZoomAtPoint(
   prevScale: number,
   nextScale: number
 ): Point {
-  if (prevScale <= 0) return offset
+  if (prevScale <= 0) {return offset}
   const ratio = nextScale / prevScale
+
   return {
     x: cursor.x - (cursor.x - offset.x) * ratio,
     y: cursor.y - (cursor.y - offset.y) * ratio
@@ -127,6 +136,7 @@ export function zoomAtPoint(
   base: Size
 ): { offset: Point; scale: number } {
   const scale = clampZoom(nextScale)
+
   return {
     offset: clampPan(panForZoomAtPoint(cursor, offset, prevScale, scale), base, scale),
     scale

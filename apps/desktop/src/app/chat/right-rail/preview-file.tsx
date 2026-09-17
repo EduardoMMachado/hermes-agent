@@ -41,6 +41,7 @@ import type { PreviewTarget } from '@/store/preview'
 import { setPreviewDirty } from '@/store/preview-edit'
 import { $connection, $currentCwd } from '@/store/session'
 import { notifyWorkspaceChanged } from '@/store/workspace-events'
+import { PreviewDiagram } from './preview-diagram'
 
 const SHIKI_THEME = { dark: 'github-dark-default', light: 'github-light-default' } as const
 const TEXT_PREVIEW_MAX_BYTES = 512 * 1024
@@ -776,6 +777,9 @@ export function LocalFilePreview({ reloadKey, target }: { reloadKey: number; tar
   const filePath = filePathForTarget(target)
   const isImage = target.previewKind === 'image'
   const isPdf = target.previewKind === 'pdf'
+  // A PlantUML source renders on demand: no bytes to read here, and the
+  // viewer owns its own loading state and link navigation.
+  const isDiagram = target.previewKind === 'diagram'
 
   // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
   useEffect(() => {
@@ -794,7 +798,7 @@ export function LocalFilePreview({ reloadKey, target }: { reloadKey: number; tar
   // when the file is forcibly previewed past the binary refusal screen.
   const isText = target.previewKind === 'text' || target.previewKind === 'binary' || target.previewKind === 'html'
 
-  const blockedByTarget = !isImage && !isPdf && !forcePreview && (target.binary || target.large)
+  const blockedByTarget = !isImage && !isPdf && !isDiagram && !forcePreview && (target.binary || target.large)
 
   useEffect(() => {
     let active = true
@@ -1126,6 +1130,10 @@ export function LocalFilePreview({ reloadKey, target }: { reloadKey: number; tar
         tone="warning"
       />
     )
+  }
+
+  if (isDiagram && filePath) {
+    return <PreviewDiagram label={target.label} path={filePath} />
   }
 
   if (isImage && state.dataUrl) {

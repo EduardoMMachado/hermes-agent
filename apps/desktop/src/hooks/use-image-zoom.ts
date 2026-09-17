@@ -30,7 +30,7 @@ const ORIGIN: Point = { x: 0, y: 0 }
  * sharp, so a vector grows its LAYOUT box (width/height) and the engine
  * re-renders it at the new size; pan stays a translate either way.
  */
-export function useImageZoom(active: boolean, vector = false, modal = false) {
+export function useImageZoom(active: boolean, vector = false, modal = false, naturalSize?: null | Size) {
   const [scale, setScale] = useState(MIN_ZOOM)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -42,13 +42,22 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
   const naturalRef = useRef<{ height: number; width: number } | null>(null)
 
   const captureNatural = useCallback(() => {
+    // A caller that knows the true size (a diagram reads it from the SVG's
+    // viewBox) passes it in. Measuring is a fallback for an <img>, and it is
+    // only correct while the element is at fit: a surface whose box the hook
+    // has already cleared measures its COLLAPSED size, and every later zoom
+    // multiplies that mistake.
+    if (naturalSize && naturalSize.width > 0 && naturalSize.height > 0) {
+      return naturalSize
+    }
+
     const node = imageRef.current
     if (!node) return null
     if (!naturalRef.current && node.offsetWidth > 0) {
       naturalRef.current = { height: node.offsetHeight, width: node.offsetWidth }
     }
     return naturalRef.current
-  }, [])
+  }, [naturalSize])
 
   const paint = useCallback(
     (next: Point, nextScale: number) => {
@@ -111,9 +120,18 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
     naturalRef.current = null
     const node = imageRef.current
     if (node && vector) {
-      // Hand the box back to the stylesheet; the fit classes take over again.
-      node.style.width = ''
-      node.style.height = ''
+      // Back to the fit box. When the caller declared a natural size, restore
+      // THAT rather than blanking the width: React wrote it through the style
+      // prop and will not rewrite an unchanged value, so clearing it collapses
+      // the element to its content and every later zoom multiplies the
+      // collapsed box instead of the drawing.
+      if (naturalSize && naturalSize.width > 0 && naturalSize.height > 0) {
+        node.style.width = `${naturalSize.width}px`
+        node.style.height = `${naturalSize.height}px`
+      } else {
+        node.style.width = ''
+        node.style.height = ''
+      }
       node.style.maxWidth = ''
       node.style.maxHeight = ''
       node.style.transform = 'translate3d(0px, 0px, 0)'
@@ -121,7 +139,7 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
       paint(ORIGIN, MIN_ZOOM)
     }
     setScale(MIN_ZOOM)
-  }, [paint, vector])
+  }, [naturalSize, paint, vector])
 
   /** Zoom from a control, anchored at the image's center. */
   const zoomByStep = useCallback(

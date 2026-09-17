@@ -126,3 +126,66 @@ describe('useImageZoom on a vector surface', () => {
     expect(new Set(seen).size).toBe(1)
   })
 })
+
+describe('useImageZoom with a declared natural size', () => {
+  // The regression this pins, measured in a browser: reset() blanked the
+  // width, React never rewrote the unchanged style prop, and the host
+  // collapsed from 468x368 to its content at 300x180. Every later zoom then
+  // multiplied the collapsed box — 2x landed at 600x360, barely past the fit,
+  // so the drawing appeared to shift rather than magnify.
+  it('restores the declared box on reset instead of collapsing it', () => {
+    let zoom: null | Zoom = null
+
+    function Declared() {
+      const z = useImageZoom(true, true, false, { height: 600, width: 1000 })
+
+      zoom = z
+
+      return (
+        <div {...z.containerProps}>
+          <div
+            data-testid="host"
+            ref={node => {
+              z.imageRef.current = node as unknown as HTMLImageElement | null
+            }}
+          />
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<Declared />)
+
+    act(() => zoom!.zoomIn())
+    act(() => zoom!.reset())
+
+    expect(getByTestId('host').style.width).toBe('1000px')
+  })
+
+  it('scales from the declared size, not from the laid-out box', () => {
+    let zoom: null | Zoom = null
+
+    function Declared() {
+      const z = useImageZoom(true, true, false, { height: 600, width: 1000 })
+
+      zoom = z
+
+      return (
+        <div {...z.containerProps}>
+          <div
+            data-testid="host"
+            ref={node => {
+              z.imageRef.current = node as unknown as HTMLImageElement | null
+            }}
+          />
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<Declared />)
+
+    act(() => zoom!.zoomIn())
+
+    // ZOOM_STEP is 1.25: the box must come from 1000, not from jsdom's 0.
+    expect(getByTestId('host').style.width).toBe('1250px')
+  })
+})

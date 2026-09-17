@@ -117,13 +117,17 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
     return width > 0 && height > 0 ? { height, width } : null
   }, [clean])
 
-  // Vector source: the zoom scales layout rather than transform, so the
-  // diagram stays sharp at any magnification.
-  const zoom = useImageZoom(true, true)
+  // Vector source: the zoom scales layout rather than transform, so the diagram
+  // stays sharp at any magnification. The natural size is handed over rather
+  // than measured — the viewBox is the drawing's true size, while measuring the
+  // host returns whatever the fit left it at (and, after a reset clears the
+  // box, its collapsed size).
+  const zoom = useImageZoom(true, true, false, natural)
 
-  // The hook caches the baseline on first measure and never clears it, so a
-  // second diagram would be panned against the first one's dimensions. Reset
-  // on every new drawing: same reason the trail restarts on a new file.
+  // Back to 100% when the drawing changes, so a hop does not land mid-zoom on
+  // someone else's coordinates. Keyed on the file, NOT on the rendered markup:
+  // a re-render of the same diagram (re-render button, a save) should leave the
+  // user where they were.
   //
   // Depend on `zoom.reset`, never on `zoom`: the hook returns a fresh object
   // literal every render, so the whole object as a dependency re-runs this on
@@ -133,7 +137,7 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
 
   useEffect(() => {
     resetZoom()
-  }, [clean, resetZoom])
+  }, [active, resetZoom])
 
   // Intercept clicks on the diagram's own links. Delegated from the host so it
   // survives every re-render, and captured before the anchor's default, which

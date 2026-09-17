@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
-  clampPan,
-  clampZoom,
-  isTypingTarget,
   MAX_ZOOM,
   MIN_ZOOM,
   type Point,
-  type Size,
   ZOOM_STEP,
+  clampPan,
+  clampZoom,
+  isTypingTarget,
   zoomAtPoint,
   zoomFromWheel
 } from '@/lib/image-zoom'
@@ -30,7 +29,7 @@ const ORIGIN: Point = { x: 0, y: 0 }
  * sharp, so a vector grows its LAYOUT box (width/height) and the engine
  * re-renders it at the new size; pan stays a translate either way.
  */
-export function useImageZoom(active: boolean, vector = false, modal = false, naturalSize?: null | Size) {
+export function useImageZoom(active: boolean, vector = false, modal = false) {
   const [scale, setScale] = useState(MIN_ZOOM)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -42,22 +41,13 @@ export function useImageZoom(active: boolean, vector = false, modal = false, nat
   const naturalRef = useRef<{ height: number; width: number } | null>(null)
 
   const captureNatural = useCallback(() => {
-    // A caller that knows the true size (a diagram reads it from the SVG's
-    // viewBox) passes it in. Measuring is a fallback for an <img>, and it is
-    // only correct while the element is at fit: a surface whose box the hook
-    // has already cleared measures its COLLAPSED size, and every later zoom
-    // multiplies that mistake.
-    if (naturalSize && naturalSize.width > 0 && naturalSize.height > 0) {
-      return naturalSize
-    }
-
     const node = imageRef.current
     if (!node) return null
     if (!naturalRef.current && node.offsetWidth > 0) {
       naturalRef.current = { height: node.offsetHeight, width: node.offsetWidth }
     }
     return naturalRef.current
-  }, [naturalSize])
+  }, [])
 
   const paint = useCallback(
     (next: Point, nextScale: number) => {
@@ -91,47 +81,23 @@ export function useImageZoom(active: boolean, vector = false, modal = false, nat
     return { height: node.offsetHeight, width: node.offsetWidth }
   }, [captureNatural, vector])
 
-  /** What the user can actually see. The overflow that panning may reach is
-   *  measured against this, not against the baseline box: a surface that starts
-   *  shrunk to fit (a diagram) has a baseline bigger than the viewport, and
-   *  conflating the two pins its edges out of reach. */
-  const viewportSize = useCallback((): Size | undefined => {
-    const container = containerRef.current
-    if (!container) return undefined
-    return { height: container.clientHeight, width: container.clientWidth }
-  }, [])
-
   const apply = useCallback(
     (next: Point, nextScale: number) => {
-      const clamped = clampPan(next, baseSize(), nextScale, viewportSize())
+      const clamped = clampPan(next, baseSize(), nextScale)
       offsetRef.current = clamped
       paint(clamped, nextScale)
       setScale(nextScale)
     },
-    [baseSize, paint, viewportSize]
+    [baseSize, paint]
   )
 
   const reset = useCallback(() => {
     offsetRef.current = ORIGIN
-    // Forget the measured baseline too. It is captured once and never expires,
-    // so a surface that swaps its content (the diagram pane, moving from one
-    // drawing to the next) would keep panning against the previous drawing's
-    // dimensions — the pan bounds come from this number.
-    naturalRef.current = null
     const node = imageRef.current
     if (node && vector) {
-      // Back to the fit box. When the caller declared a natural size, restore
-      // THAT rather than blanking the width: React wrote it through the style
-      // prop and will not rewrite an unchanged value, so clearing it collapses
-      // the element to its content and every later zoom multiplies the
-      // collapsed box instead of the drawing.
-      if (naturalSize && naturalSize.width > 0 && naturalSize.height > 0) {
-        node.style.width = `${naturalSize.width}px`
-        node.style.height = `${naturalSize.height}px`
-      } else {
-        node.style.width = ''
-        node.style.height = ''
-      }
+      // Hand the box back to the stylesheet; the fit classes take over again.
+      node.style.width = ''
+      node.style.height = ''
       node.style.maxWidth = ''
       node.style.maxHeight = ''
       node.style.transform = 'translate3d(0px, 0px, 0)'
@@ -139,7 +105,7 @@ export function useImageZoom(active: boolean, vector = false, modal = false, nat
       paint(ORIGIN, MIN_ZOOM)
     }
     setScale(MIN_ZOOM)
-  }, [naturalSize, paint, vector])
+  }, [paint, vector])
 
   /** Zoom from a control, anchored at the image's center. */
   const zoomByStep = useCallback(
@@ -147,13 +113,13 @@ export function useImageZoom(active: boolean, vector = false, modal = false, nat
       setScale(prev => {
         const next = clampZoom(prev * factor)
         const scaled = { x: (offsetRef.current.x * next) / prev, y: (offsetRef.current.y * next) / prev }
-        const clamped = clampPan(scaled, baseSize(), next, viewportSize())
+        const clamped = clampPan(scaled, baseSize(), next)
         offsetRef.current = clamped
         paint(clamped, next)
         return next
       })
     },
-    [baseSize, paint, viewportSize]
+    [baseSize, paint]
   )
 
   const zoomIn = useCallback(() => zoomByStep(ZOOM_STEP), [zoomByStep])
@@ -175,12 +141,12 @@ export function useImageZoom(active: boolean, vector = false, modal = false, nat
         y: event.clientY - (rect.top + rect.height / 2)
       }
       const next = zoomFromWheel(scale, event.deltaY)
-      const result = zoomAtPoint(cursor, offsetRef.current, scale, next, baseSize(), viewportSize())
+      const result = zoomAtPoint(cursor, offsetRef.current, scale, next, baseSize())
       offsetRef.current = result.offset
       paint(result.offset, result.scale)
       setScale(result.scale)
     },
-    [baseSize, paint, scale, viewportSize]
+    [baseSize, paint, scale]
   )
 
   const onPointerDown = useCallback(
@@ -207,13 +173,12 @@ export function useImageZoom(active: boolean, vector = false, modal = false, nat
           y: drag.origin.y + (event.clientY - drag.start.y)
         },
         baseSize(),
-        scale,
-        viewportSize()
+        scale
       )
       offsetRef.current = next
       paint(next, scale)
     },
-    [baseSize, paint, scale, viewportSize]
+    [baseSize, paint, scale]
   )
 
   const endDrag = useCallback((event: React.PointerEvent<HTMLImageElement>) => {

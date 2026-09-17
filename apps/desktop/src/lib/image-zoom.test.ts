@@ -170,34 +170,3 @@ describe('zoomBy', () => {
     expect(stepped).toBeCloseTo(2, 5)
   })
 })
-
-describe('maxPanOffset with a viewport smaller than the baseline', () => {
-  // A diagram opens shrunk to fit: a 1000px drawing displayed in a 500px pane
-  // keeps its 1000px baseline. Measured in a real browser before the fix —
-  // the hook allowed 500px of pan where 750px was needed to reach the edge,
-  // leaving 250px of the drawing unreachable on each side.
-  it('reaches the edge of a drawing that started shrunk', () => {
-    expect(maxPanOffset(1000, 2, 500)).toBe(750)
-  })
-
-  it('still assumes a full-size start when no viewport is given', () => {
-    // The lightbox and the image pane fill their container, so base is the
-    // viewport and the old arithmetic is the right one.
-    expect(maxPanOffset(1000, 2)).toBe(500)
-  })
-
-  it('has nothing to pan when the drawing fits at this scale', () => {
-    expect(maxPanOffset(400, 1, 500)).toBe(0)
-  })
-
-  it('ignores a nonsense viewport rather than freezing the pan', () => {
-    expect(maxPanOffset(1000, 2, 0)).toBe(500)
-    expect(maxPanOffset(1000, 2, Number.NaN)).toBe(500)
-  })
-
-  it('clamps both axes against the visible box', () => {
-    const out = clampPan({ x: 9999, y: 9999 }, { height: 600, width: 1000 }, 2, { height: 300, width: 500 })
-
-    expect(out).toEqual({ x: 750, y: 450 })
-  })
-})

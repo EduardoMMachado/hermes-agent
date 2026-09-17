@@ -93,6 +93,11 @@ export function useImageZoom(active: boolean, vector = false, modal = false) {
 
   const reset = useCallback(() => {
     offsetRef.current = ORIGIN
+    // Forget the measured baseline too. It is captured once and never expires,
+    // so a surface that swaps its content (the diagram pane, moving from one
+    // drawing to the next) would keep panning against the previous drawing's
+    // dimensions — the pan bounds come from this number.
+    naturalRef.current = null
     const node = imageRef.current
     if (node && vector) {
       // Hand the box back to the stylesheet; the fit classes take over again.

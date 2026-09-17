@@ -104,21 +104,29 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
   }, [clean])
 
-  // The wrapper needs a real box before the zoom can measure it: the hook reads
-  // offsetWidth, and a div holding only a sized-stripped <svg> measures zero.
-  // The viewBox carries the drawing's proportions, so the wrapper keeps the
-  // aspect ratio and the fit classes decide how big it starts.
-  const aspectRatio = useMemo(() => {
+  // The zoom hook measures the wrapper with offsetWidth and remembers that
+  // first reading as the 100% baseline, so the wrapper must already be the
+  // size the diagram wants. An aspect-ratio alone is not a size: the box
+  // collapses to whatever the flex parent grants, which is why a drawing
+  // opened small and then had almost nothing to pan.
+  const natural = useMemo(() => {
     const box = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(clean)
     const width = Number(box?.[1])
     const height = Number(box?.[2])
 
-    return width > 0 && height > 0 ? `${width} / ${height}` : undefined
+    return width > 0 && height > 0 ? { height, width } : null
   }, [clean])
 
   // Vector source: the zoom scales layout rather than transform, so the
   // diagram stays sharp at any magnification.
   const zoom = useImageZoom(true, true)
+
+  // The hook caches the baseline on first measure and never clears it, so a
+  // second diagram would be panned against the first one's dimensions. Reset
+  // on every new drawing: same reason the trail restarts on a new file.
+  useEffect(() => {
+    zoom.reset()
+  }, [clean, zoom])
 
   // Intercept clicks on the diagram's own links. Delegated from the host so it
   // survives every re-render, and captured before the anchor's default, which
@@ -211,7 +219,7 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
           <div
             aria-label={label}
             className={cn(
-              'max-h-full max-w-full [&_a]:cursor-pointer [&_svg]:h-full [&_svg]:w-full',
+              'max-h-full max-w-full [&_a]:cursor-pointer [&_svg]:block [&_svg]:h-full [&_svg]:w-full',
               zoom.isZoomed && 'cursor-grab active:cursor-grabbing'
             )}
             dangerouslySetInnerHTML={{ __html: clean }}
@@ -224,7 +232,15 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
               hostRef.current = node
               zoom.imageRef.current = node as unknown as HTMLImageElement | null
             }}
-            style={{ aspectRatio, transformOrigin: 'center center', willChange: 'transform' }}
+            style={{
+              // The drawing's own size, so the hook's first measurement is the
+              // full diagram. max-width/height above shrink it to fit the pane
+              // for display; the hook lifts those caps the moment you zoom in.
+              height: natural?.height,
+              transformOrigin: 'center center',
+              width: natural?.width,
+              willChange: 'transform'
+            }}
           />
           <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border/70 bg-background/85 p-1 shadow-sm backdrop-blur">
             <Button

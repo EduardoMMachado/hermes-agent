@@ -1,9 +1,10 @@
 'use client'
 
 import DOMPurify from 'dompurify'
-import { ArrowLeft, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Maximize2, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useI18n } from '@/i18n'
 import { Button } from '@/components/ui/button'
 import { useImageZoom } from '@/hooks/use-image-zoom'
 import {
@@ -37,6 +38,8 @@ interface RenderState {
  *  back. The rendered SVG is never written to disk — the source is the only
  *  artefact. */
 export function PreviewDiagram({ label, path }: { label: string; path: string }) {
+  const { t } = useI18n()
+  const copy = t.desktop
   const [history, setHistory] = useState<DiagramHistory>(() => startHistory(path))
   const [state, setState] = useState<RenderState>({ loading: true })
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -80,6 +83,38 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
         : '',
     [state.svg]
   )
+
+  // PlantUML writes the diagram's pixel size into the root <svg> as an inline
+  // `style="width:229px;height:366px"`, plus width/height attributes. Inline
+  // style beats any class, so the drawing renders at its natural size, ignores
+  // the fit, and the zoom has nothing to grow. Strip the sizing and keep the
+  // viewBox: the box then comes from the wrapper the hook resizes, and the
+  // vector re-lays out sharp at every scale.
+  useEffect(() => {
+    const svg = hostRef.current?.querySelector('svg')
+
+    if (!svg) {
+      return
+    }
+
+    svg.style.removeProperty('width')
+    svg.style.removeProperty('height')
+    svg.removeAttribute('width')
+    svg.removeAttribute('height')
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+  }, [clean])
+
+  // The wrapper needs a real box before the zoom can measure it: the hook reads
+  // offsetWidth, and a div holding only a sized-stripped <svg> measures zero.
+  // The viewBox carries the drawing's proportions, so the wrapper keeps the
+  // aspect ratio and the fit classes decide how big it starts.
+  const aspectRatio = useMemo(() => {
+    const box = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(clean)
+    const width = Number(box?.[1])
+    const height = Number(box?.[2])
+
+    return width > 0 && height > 0 ? `${width} / ${height}` : undefined
+  }, [clean])
 
   // Vector source: the zoom scales layout rather than transform, so the
   // diagram stays sharp at any magnification.
@@ -163,12 +198,64 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
           onWheel={zoom.onWheel}
           {...zoom.containerProps}
         >
+          {/* The zoom hook drives this node's own style box, so it has to carry
+              `imageRef` exactly as the <img> preview does — without the ref it
+              measures nothing and the diagram stays fitted to the pane. The
+              fit classes are the UNZOOMED state; the hook clears maxWidth /
+              maxHeight itself once scale leaves 1. */}
           <div
             aria-label={label}
-            className="[&_a]:cursor-pointer [&_svg]:h-auto [&_svg]:max-h-full [&_svg]:max-w-full"
+            className={cn(
+              'max-h-full max-w-full [&_a]:cursor-pointer [&_svg]:h-full [&_svg]:w-full',
+              zoom.isZoomed && 'cursor-grab active:cursor-grabbing'
+            )}
             dangerouslySetInnerHTML={{ __html: clean }}
-            ref={hostRef}
+            onDoubleClick={zoom.onDoubleClick}
+            onPointerCancel={zoom.endDrag}
+            onPointerDown={zoom.onPointerDown}
+            onPointerMove={zoom.onPointerMove}
+            onPointerUp={zoom.endDrag}
+            ref={node => {
+              hostRef.current = node
+              zoom.imageRef.current = node as unknown as HTMLImageElement | null
+            }}
+            style={{ aspectRatio, transformOrigin: 'center center', willChange: 'transform' }}
           />
+          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border/70 bg-background/85 p-1 shadow-sm backdrop-blur">
+            <Button
+              className="size-7 p-0"
+              disabled={!zoom.canZoomOut}
+              onClick={zoom.zoomOut}
+              size="sm"
+              title={copy.zoomOut}
+              variant="ghost"
+            >
+              <ZoomOut className="size-4" />
+            </Button>
+            <span className="min-w-12 text-center text-xs tabular-nums text-muted-foreground">
+              {Math.round(zoom.scale * 100)}%
+            </span>
+            <Button
+              className="size-7 p-0"
+              disabled={!zoom.canZoomIn}
+              onClick={zoom.zoomIn}
+              size="sm"
+              title={copy.zoomIn}
+              variant="ghost"
+            >
+              <ZoomIn className="size-4" />
+            </Button>
+            <Button
+              className="size-7 p-0"
+              disabled={!zoom.isZoomed}
+              onClick={zoom.reset}
+              size="sm"
+              title={copy.resetZoom}
+              variant="ghost"
+            >
+              <Maximize2 className="size-4" />
+            </Button>
+          </div>
         </div>
       )}
     </div>

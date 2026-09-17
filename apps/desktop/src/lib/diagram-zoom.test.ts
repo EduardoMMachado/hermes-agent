@@ -184,3 +184,40 @@ describe('clampTranslate', () => {
     expect(out).toEqual({ x: 0, y: -400 })
   })
 })
+
+describe('the reported case: a tall drawing in a wide window', () => {
+  // architecture/c4/l1-context.puml renders at 1692x2270 — taller than wide,
+  // in a window that is wider than tall. The report was that it opened cut off
+  // at the bottom and only ever slid around.
+  const TALL = { height: 2270, width: 1692 }
+  const WINDOW = { height: 830, width: 1250 }
+
+  it('fits the whole drawing on screen at scale 1', () => {
+    const fit = fittedSize(TALL, WINDOW)!
+
+    expect(fit.height).toBeLessThanOrEqual(WINDOW.height)
+    expect(fit.width).toBeLessThanOrEqual(WINDOW.width)
+    // Height is the binding axis here, so it lands exactly on the window.
+    expect(Math.round(fit.height)).toBe(830)
+    expect(Math.round(fit.width)).toBe(619)
+  })
+
+  it('has nothing to pan until it is zoomed', () => {
+    const fit = fittedSize(TALL, WINDOW)!
+
+    expect(isPannable(fitView(fit, WINDOW), fit, WINDOW)).toBe(false)
+  })
+
+  it('enlarges on every wheel notch', () => {
+    const fit = fittedSize(TALL, WINDOW)!
+    let view = fitView(fit, WINDOW)
+    const heights = [contentSize(fit, view.scale).height]
+
+    for (let i = 0; i < 3; i += 1) {
+      view = zoomTo(view, scaleFromWheel(view.scale, -120), { x: 600, y: 400 }, fit, WINDOW)
+      heights.push(contentSize(fit, view.scale).height)
+    }
+
+    expect(heights.every((h, i) => i === 0 || h > heights[i - 1])).toBe(true)
+  })
+})

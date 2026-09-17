@@ -45,10 +45,17 @@ export function useDiagramZoom(natural: null | Size) {
     const measure = () => {
       const rect = node.getBoundingClientRect()
 
+      // Measure the VIEWPORT, not the content. A wrapper that grows with its
+      // child reports the drawing's own height back, the fit then concludes
+      // nothing needs shrinking, and the diagram overflows the window with no
+      // way to zoom out. Cap by what is actually on screen.
+      const width = Math.min(rect.width, window.innerWidth)
+      const height = Math.min(rect.height, window.innerHeight)
+
       setPane(prev =>
-        prev && Math.abs(prev.width - rect.width) < 0.5 && Math.abs(prev.height - rect.height) < 0.5
+        prev && Math.abs(prev.width - width) < 0.5 && Math.abs(prev.height - height) < 0.5
           ? prev
-          : { height: rect.height, width: rect.width }
+          : { height, width }
       )
     }
 

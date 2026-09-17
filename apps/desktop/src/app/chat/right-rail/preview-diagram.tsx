@@ -155,7 +155,12 @@ export function PreviewDiagram({ label, path }: { label: string; path: string })
     host.addEventListener('click', onClick)
 
     return () => host.removeEventListener('click', onClick)
-  }, [active])
+    // `clean` is in here on purpose, not just `active`: on first paint the host
+    // is empty (the render is still in flight) and the effect binds to a node
+    // that later gets its children replaced wholesale. Without re-running when
+    // the markup arrives, the listener can sit on a stale node and no click
+    // ever reaches it.
+  }, [active, clean])
 
   const back = previousEntry(history)
 

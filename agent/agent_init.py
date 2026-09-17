@@ -751,7 +751,28 @@ def _init_anthropic_client(agent, api_key, base_url, _provider_timeout):
     # cause 401/403 on their endpoints. See #1739.
     from agent.anthropic_credentials import _is_oauth_token as _is_oat
     agent._is_anthropic_oauth = _is_oat(effective_key) if (_is_native_anthropic and isinstance(effective_key, str)) else False
-    agent._anthropic_client = build_anthropic_client(effective_key, base_url, timeout=_provider_timeout)
+    # A subscription access token lives ~8h and `claude` refreshes it on its own schedule,
+    # writing a new one to ~/.claude/.credentials.json. The SDK freezes auth_token at
+    # construction, so a long-lived session keeps presenting the token it started with and
+    # the API answers 401 "OAuth access token has been revoked" — which reads like a
+    # sign-out but only means "stale". Retry looked like it fixed it because each attempt
+    # eventually landed after something rebuilt the client.
+    #
+    # Same fix MiniMax OAuth already uses above: hand the factory a provider instead of a
+    # string, and every request mints from whatever is on disk now. resolve_anthropic_token
+    # re-reads the file per call, so a refresh by `claude` (or any other process) is picked up.
+    _client_credential = effective_key
+    if _is_native_anthropic and not api_key and agent._is_anthropic_oauth:
+        def _fresh_anthropic_oauth_token(_model=getattr(agent, "model", None), _fallback=effective_key):
+            try:
+                return resolve_anthropic_token(model=_model) or _fallback
+            except Exception:  # noqa: BLE001 — a read failure must not end the turn
+                # Keep the last known token: it may still be valid, and a 401 is a clearer
+                # failure than a crash inside the request hook.
+                return _fallback
+
+        _client_credential = _fresh_anthropic_oauth_token
+    agent._anthropic_client = build_anthropic_client(_client_credential, base_url, timeout=_provider_timeout)
     if not agent.quiet_mode:
         print(f"🤖 AI Agent initialized with model: {agent.model} (Anthropic native)")
         _print_key_banner(effective_key, "token")

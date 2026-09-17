@@ -212,6 +212,10 @@ _FAST_MODE_BETA = "fast-mode-2026-02-01"
 # Required for OAuth/subscription auth; matches Claude Code / pi-ai / OpenCode.
 _OAUTH_ONLY_BETAS = ["claude-code-20250219", "oauth-2025-04-20"]
 
+# A callable credential carries no shape to classify, so build_anthropic_client probes the
+# endpoint with this OAuth-shaped placeholder. Never sent: _auth_style only pattern-matches it.
+_OAUTH_STYLE_PROBE = "sk-ant-oat01-endpoint-probe"
+
 # Claude Code identity — OAuth requests without it intermittently 500. Anthropic rejects OAuth
 # requests whose user-agent version is too far behind the actual release, so the installed
 # version is detected and this fallback kept current.
@@ -325,20 +329,31 @@ def _base_client_kwargs(base_url, timeout) -> tuple[str, Dict[str, Any]]:
 
 
 def _build_anthropic_client_with_bearer_hook(
-    token_provider, base_url: str = None, timeout: float = None, *, drop_context_1m_beta: bool = False
+    token_provider, base_url: str = None, timeout: float = None, *, drop_context_1m_beta: bool = False,
+    oauth_identity: bool = False,
 ):
-    """Anthropic-on-Foundry Entra ID variant of :func:`build_anthropic_client`. The SDK stores
-    ``api_key``/``auth_token`` as static strings, so per-request bearer refresh (Microsoft's
+    """Anthropic client whose bearer is minted per request. The SDK stores
+    ``api_key``/``auth_token`` as static strings, so per-request refresh (Microsoft's
     documented Foundry pattern) uses a custom ``httpx.Client`` whose request hook mints a fresh JWT
     and rewrites ``Authorization``; the SDK skips its own auth when ``http_client`` is given. The
-    placeholder ``auth_token`` is still required at construction and makes any leak diagnosable."""
+    placeholder ``auth_token`` is still required at construction and makes any leak diagnosable.
+
+    ``oauth_identity`` serves the other caller of this path: a Claude Code subscription token,
+    which is refreshed out from under a long session. Anthropic routes OAuth by user-agent and
+    beta headers, and a request missing them intermittently 500s, so the OAuth headers that
+    :func:`build_anthropic_client` sets on the static path are applied here too.
+    """
     sdk = _require_sdk("Azure Foundry Anthropic-style endpoints with Entra ID auth", verb="Install with")
     normalize_proxy_env_vars()
     from agent.azure_identity_adapter import build_bearer_http_client
     normalized_base_url, kwargs = _base_client_kwargs(base_url, timeout)
     kwargs["http_client"] = build_bearer_http_client(token_provider, timeout=kwargs["timeout"])
-    kwargs["auth_token"] = "entra-id-bearer-via-http-hook"
-    headers = _beta_header(_common_betas_for_base_url(normalized_base_url, drop_context_1m_beta=drop_context_1m_beta))
+    kwargs["auth_token"] = "oauth-bearer-via-http-hook" if oauth_identity else "entra-id-bearer-via-http-hook"
+    common_betas = _common_betas_for_base_url(normalized_base_url, drop_context_1m_beta=drop_context_1m_beta)
+    headers = _beta_header(common_betas + _OAUTH_ONLY_BETAS if oauth_identity else common_betas)
+    if oauth_identity:
+        headers["user-agent"] = f"claude-code/{_get_claude_code_version()} (external, cli)"
+        headers["x-app"] = "cli"
     return _new_sdk_client(sdk, kwargs, headers)
 
 
@@ -388,8 +403,16 @@ def build_anthropic_client(api_key, base_url: str = None, timeout: float = None,
     rejects it; fresh clients keep the default so 1M-capable subscriptions keep the capability."""
     sdk = _require_sdk("the Anthropic provider")
     if callable(api_key) and not isinstance(api_key, str):
+        # A callable credential means the bearer must be minted per request. Two callers
+        # arrive here: Entra ID on Foundry, and a Claude Code subscription token that gets
+        # refreshed mid-session. Only the latter needs the OAuth identity headers, and the
+        # endpoint decides — reuse _auth_style so this never drifts from the static path.
+        # A callable is not a token to classify, so probe the endpoint with an OAuth-shaped
+        # placeholder: "oauth" comes back only when nothing else claimed the endpoint.
+        probe = _auth_style(_OAUTH_STYLE_PROBE, base_url, _base_client_kwargs(base_url, timeout)[0])
         return _build_anthropic_client_with_bearer_hook(
-            api_key, base_url, timeout, drop_context_1m_beta=drop_context_1m_beta
+            api_key, base_url, timeout, drop_context_1m_beta=drop_context_1m_beta,
+            oauth_identity=probe == "oauth",
         )
     normalize_proxy_env_vars()
     normalized_base_url, kwargs = _base_client_kwargs(base_url, timeout)

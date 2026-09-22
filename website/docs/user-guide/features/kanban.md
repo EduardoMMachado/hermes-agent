@@ -62,9 +62,19 @@ required contexts, paginates exact-head check runs and legacy statuses, then
 re-reads the PR head/base. Optional failed/skipped telemetry does not veto accepted
 required checks. Missing, pending, failed, cancelled, timed-out, stale, skipped or
 neutral **required** evidence cannot complete the card. Neither can zero-run
-acceptance, unreadable policy or GitHub API failures. A repository without required
-checks needs a local-only contract. `gh` must be authenticated with read access to
-the repository's checks and rules; no remote writes are performed by this gate.
+acceptance or GitHub API failures. A repository without required checks needs a
+local-only contract. `gh` must be authenticated with read access to the
+repository's checks and rules; no remote writes are performed by this gate.
+
+A 403/404 reading the rulesets API (private repos without GitHub Pro/rulesets)
+is not treated as an infrastructure failure — it means "no rulesets readable",
+distinct from a genuine auth/network failure which still classifies `infra`.
+When that repo also has no classic branch protection, there is no
+repository-required-checks list to evaluate; the gate falls back to requiring
+every check-run reported at the exact head to have succeeded
+(`acceptance_rule: "exact_head_all_check_runs"` in the receipt, vs.
+`"repository_required_checks"` for the normal path). No check-runs at the head,
+a failing one, or one at a different SHA still cannot complete the card.
 
 Rejection retains the active card and workspace. Durable `pr_acceptance` events
 store PR URL, SHA, required contexts, check IDs/URLs, classifications and recovery

@@ -3285,7 +3285,8 @@ def _nonblank_str(value: Any) -> Optional[str]:
 
 
 def _implementer_from_run_history(
-    conn: sqlite3.Connection, task_id: str, *, exclude_run_id: Optional[int],
+    conn: sqlite3.Connection, task_id: str, *,
+    exclude_run_id: Optional[int], exclude_profile: Optional[str],
 ) -> Optional[str]:
     """Degraded implementer provenance for a card that reached ``review``
     without ever calling ``request_review`` — ``recompute_ready``'s
@@ -3298,6 +3299,18 @@ def _implementer_from_run_history(
     caller then leaves ``assignee`` untouched, the same degradation
     :func:`reopen_review_task` already applies when its own event has no
     implementer.
+
+    ``review_outcome`` alone is not enough: it is written only on the
+    ``sdlc-review`` skill's APPROVAL path. A reviewer run that instead ends
+    ``blocked``/``reclaimed``/``crashed``/``timed_out`` closes with
+    ``metadata=NULL`` and, being the most recently ENDED run, would outrank
+    the implementer's own closing run — electing the reviewer as the card's
+    next assignee via the very rework path meant to route it away from them
+    (measured on a synthetic board: the ``ready`` lane then dispatches
+    ``profile=<reviewer>``, exactly the mix-up the review-lane guard family
+    exists to prevent). ``exclude_profile`` — the caller's already-resolved
+    reviewer — is the second, independent filter that closes this: any row
+    whose ``profile`` matches it is skipped regardless of ``metadata``.
     """
     rows = conn.execute(
         "SELECT id, profile, metadata FROM task_runs "
@@ -3307,9 +3320,12 @@ def _implementer_from_run_history(
     for row in rows:
         if exclude_run_id is not None and row["id"] == exclude_run_id:
             continue
+        profile = _nonblank_str(_row_get(row, "profile"))
+        if profile is not None and exclude_profile is not None:
+            if _canonical_assignee(profile) == exclude_profile:
+                continue
         if "review_outcome" in _json_dict(_row_get(row, "metadata")):
             continue
-        profile = _nonblank_str(_row_get(row, "profile"))
         if profile is not None:
             return profile
     return None
@@ -3351,10 +3367,12 @@ def request_changes(
         if claimed_payload.get("source_status") != "review":
             return False, "active run was not claimed from review"
 
+        reviewer = _canonical_assignee(_nonblank_str(task_row["assignee"]))
+
         requested_event = _latest_event(conn, task_id, "review_requested")
         if requested_event is None:
             implementer = _implementer_from_run_history(
-                conn, task_id, exclude_run_id=current_run_id,
+                conn, task_id, exclude_run_id=current_run_id, exclude_profile=reviewer,
             )
             provenance = "inferred_from_run_history" if implementer else None
         else:
@@ -3362,7 +3380,6 @@ def request_changes(
             if implementer is None:
                 return False, "review handoff has no valid implementer provenance"
             provenance = "review_requested"
-        reviewer = _canonical_assignee(_nonblank_str(task_row["assignee"]))
 
         new_status = _landing_status_after_parents(conn, task_id)
         # consecutive_failures deliberately PRESERVED: a review transition is

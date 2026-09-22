@@ -520,6 +520,21 @@ set and the run owns that task) — `delegate_task` children and cron jobs run i
 the worker inherit the variable but are never nudged, since they have no board tools —
 and can be disabled with `HERMES_KANBAN_STOP_NUDGE=0`.
 
+The nudge is scoped to the recipient's **own run**, not to `tasks.status`. A card in a
+review cycle has two or three worker processes alive at once — the implementer's process
+outlives its `review_requested` handoff while the reviewer's run is live, and vice versa —
+so "the card is running" says nothing about whether *this* session still owns it. The
+guard therefore fires only when the card's live `task_runs` row is this session's
+(`HERMES_KANBAN_RUN_ID`, falling back to the run's profile), and stays silent otherwise:
+delivered to a worker whose run already ended `review_requested` or `changes_requested`,
+`kanban_complete` would be the author approving his own work (marking the card done,
+promoting its children, killing the live review) and `kanban_block` would be false. An
+unreadable board suppresses the nudge — a missed one costs a dispatcher retry, whose
+budget exists for exactly that, while a misdelivered one corrupts the board. The profile
+fallback is only used where it actually discriminates: a rework run usually carries the
+*same* profile as the run it replaces, so when this profile also owns a closed run on the
+card the guard cannot tell the two sessions apart and suppresses rather than guess.
+
 **Dispatcher-side recovery:** If the nudges are exhausted or the worker crashes
 before reaching the nudge, the dispatcher gives the violation a **bounded retry**
 (up to `_PROTOCOL_VIOLATION_FAILURE_LIMIT` consecutive violations, default 3)

@@ -3284,12 +3284,52 @@ def _nonblank_str(value: Any) -> Optional[str]:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _implementer_from_run_history(
+    conn: sqlite3.Connection, task_id: str, *, exclude_run_id: Optional[int],
+) -> Optional[str]:
+    """Degraded implementer provenance for a card that reached ``review``
+    without ever calling ``request_review`` — ``recompute_ready``'s
+    ``promoted {"status": "review"}`` and a reconciler's raw ``UPDATE`` both
+    skip it (#t_1e569887). Falls back to the profile of the latest ENDED run
+    that is not the reviewer's own active run and whose ``metadata`` carries
+    no ``review_outcome`` (the key the ``sdlc-review`` skill writes on
+    approve) — that excludes a prior reviewer's approval run and lands on the
+    implementer's own closing run. ``None`` when no such run exists; the
+    caller then leaves ``assignee`` untouched, the same degradation
+    :func:`reopen_review_task` already applies when its own event has no
+    implementer.
+    """
+    rows = conn.execute(
+        "SELECT id, profile, metadata FROM task_runs "
+        "WHERE task_id = ? AND ended_at IS NOT NULL "
+        "ORDER BY id DESC", (task_id,),
+    ).fetchall()
+    for row in rows:
+        if exclude_run_id is not None and row["id"] == exclude_run_id:
+            continue
+        if "review_outcome" in _json_dict(_row_get(row, "metadata")):
+            continue
+        profile = _nonblank_str(_row_get(row, "profile"))
+        if profile is not None:
+            return profile
+    return None
+
+
 def request_changes(
     conn: sqlite3.Connection, task_id: str, *, reason: str, expected_run_id: Optional[int] = None,
 ) -> tuple[bool, Optional[str]]:
     """Close an active reviewer run (claimed from ``review``) and hand the task
     back to the implementer from the latest ``review_requested`` event, parent
-    gating reapplied. Returns ``(ok, implementer | reason)``."""
+    gating reapplied. Returns ``(ok, implementer | reason)``.
+
+    When no ``review_requested`` event exists at all — the card entered
+    ``review`` by promotion or a raw reconciler ``UPDATE`` instead of
+    ``request_review`` — this degrades instead of refusing: see
+    :func:`_implementer_from_run_history`. A ``review_requested`` event that
+    DOES exist but carries no valid implementer (malformed/legacy payload)
+    still fails closed — that is a corrupt handoff, not an absent one, and
+    silently guessing there would paper over data loss.
+    """
     reason = str(redact_review_value(reason or "")).strip()
     if not reason:
         return False, "reason is required"
@@ -3313,10 +3353,15 @@ def request_changes(
 
         requested_event = _latest_event(conn, task_id, "review_requested")
         if requested_event is None:
-            return False, "no prior review_requested event"
-        implementer = _nonblank_str(_json_dict(requested_event["payload"]).get("implementer"))
-        if implementer is None:
-            return False, "review handoff has no valid implementer provenance"
+            implementer = _implementer_from_run_history(
+                conn, task_id, exclude_run_id=current_run_id,
+            )
+            provenance = "inferred_from_run_history" if implementer else None
+        else:
+            implementer = _nonblank_str(_json_dict(requested_event["payload"]).get("implementer"))
+            if implementer is None:
+                return False, "review handoff has no valid implementer provenance"
+            provenance = "review_requested"
         reviewer = _canonical_assignee(_nonblank_str(task_row["assignee"]))
 
         new_status = _landing_status_after_parents(conn, task_id)
@@ -3339,16 +3384,19 @@ def request_changes(
         run_id = _end_run(
             conn, task_id, outcome="changes_requested", status=new_status, summary=reason,
         )
+        payload: dict[str, Any] = {
+            "reason": reason,
+            "implementer": implementer,
+            "reviewer": reviewer,
+            "status": new_status,
+        }
+        if provenance != "review_requested":
+            payload["implementer_provenance"] = provenance
         _append_event(
             conn,
             task_id,
             "changes_requested",
-            {
-                "reason": reason,
-                "implementer": implementer,
-                "reviewer": reviewer,
-                "status": new_status,
-            },
+            payload,
             run_id=run_id,
         )
     return True, implementer

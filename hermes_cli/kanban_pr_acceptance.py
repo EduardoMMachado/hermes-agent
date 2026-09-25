@@ -131,14 +131,28 @@ def collect_acceptance(contract: str, published_pr: str | None) -> dict:
                                       "exact head; explicitly use a local-only contract for non-CI tasks.")
                 receipt["classification"] = "missing"
                 return receipt
+            # A job disabled by `if:` at the workflow level produces no
+            # evidence against this head either way — GitHub reports it as
+            # skipped/neutral without ever running it. Under this fallback
+            # (no repository-required checks exist to pin a context as
+            # mandatory) such a check-run cannot be allowed to block
+            # completion, or every future PR touching that workflow would be
+            # stuck forever. It still must not be enough on its own: a head
+            # where every check-run was skipped/neutral has no positive
+            # evidence, so _finalize's "missing" default (empty outcomes)
+            # applies. Anything else abnormal (failure, cancelled,
+            # timed_out, action_required, stale, pending) is real negative
+            # evidence and keeps blocking via the normal outcomes list.
+            ignorable_fallback_outcomes = {"skipped", "neutral"}
             outcomes = []
             for run in runs:
                 classification = _classify(run, sha, run.get("conclusion"), True)
-                outcomes.append(classification)
                 receipt["checks"].append({"name": run["name"], "id": run["id"],
                     "url": run.get("html_url") or run.get("target_url"),
                     "head_sha": run.get("head_sha", run.get("sha")),
                     "classification": classification, "conclusion": run.get("conclusion")})
+                if classification not in ignorable_fallback_outcomes:
+                    outcomes.append(classification)
             return _finalize(receipt, repo, number, sha, branch, outcomes)
         receipt["acceptance_rule"] = "repository_required_checks"
         pages = _api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100&filter=latest", paginate=True)
@@ -177,4 +191,11 @@ def _classify(check: dict, sha: str, outcome: str | None, is_run: bool) -> str:
         return "stale"
     if is_run and check.get("status") != "completed":
         return "pending"
-    return {"success": "success", "failure": "failure", "error": "infra", "pending": "pending"}.get(outcome, "infra")
+    # skipped/neutral get their own names (not lumped into "infra") so the
+    # exact_head_all_check_runs fallback can tell "this job produced no
+    # evidence" apart from a genuine infra-classified outcome. The
+    # repository_required_checks path still blocks on them: they are simply
+    # not "success", and _finalize takes the first non-success outcome.
+    mapping: dict[str, str] = {"success": "success", "failure": "failure", "error": "infra",
+                                "pending": "pending", "skipped": "skipped", "neutral": "neutral"}
+    return mapping.get(outcome or "", "infra")

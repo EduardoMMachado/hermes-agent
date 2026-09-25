@@ -191,6 +191,55 @@ def test_rules_403_falls_back_to_exact_head_check_runs(github):
 
 
 @pytest.mark.linux_only
+def test_rules_403_fallback_skipped_check_runs_do_not_block(github):
+    """A job disabled by `if:` (conclusion=skipped/neutral) is not evidence
+    against the head under the check-runs fallback: it must not classify
+    infra and must not block completion, as long as at least one other
+    check-run at the exact head succeeded. A head where *every* check-run
+    was skipped/neutral still has no positive evidence and must not pass
+    (negative control)."""
+    github["no_protection"] = True
+    github["rules_status"] = 403
+    with connect() as conn:
+        # 1. 100 skipped "optional" runs (from the fixture's pagination
+        #    padding) plus one successful "required" run -> completes, and
+        #    the skipped runs are NOT classified infra.
+        github.update(conclusion="success", head="a" * 40)
+        tid = kb.create_task(conn, title="skip-plus-success", completion_contract="acme/repo")
+        assert kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        receipt = json.loads(conn.execute(
+            "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
+            (tid,)).fetchone()[0])
+        assert receipt["ok"] is True
+        assert receipt["classification"] == "success"
+        assert receipt["acceptance_rule"] == "exact_head_all_check_runs"
+        skipped_checks = [c for c in receipt["checks"] if c["conclusion"] == "skipped"]
+        assert skipped_checks and all(c["classification"] == "skipped" for c in skipped_checks)
+
+        # 2. Negative control: every check-run at the exact head is skipped
+        #    -> no positive evidence, cannot complete.
+        github.update(conclusion="skipped", head="a" * 40)
+        tid = kb.create_task(conn, title="all-skipped", completion_contract="acme/repo")
+        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        receipt = json.loads(conn.execute(
+            "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
+            (tid,)).fetchone()[0])
+        assert receipt["ok"] is False
+        assert receipt["classification"] != "infra"
+        assert all(c["classification"] == "skipped" for c in receipt["checks"])
+
+        # 3. A genuinely failing run alongside skipped ones still blocks.
+        github.update(conclusion="failure", head="a" * 40)
+        tid = kb.create_task(conn, title="skip-plus-failure", completion_contract="acme/repo")
+        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        receipt = json.loads(conn.execute(
+            "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
+            (tid,)).fetchone()[0])
+        assert receipt["ok"] is False
+        assert receipt["classification"] == "failure"
+
+
+@pytest.mark.linux_only
 def test_rules_403_is_distinguished_from_genuine_infra_failure(github, monkeypatch):
     """A 403/404 reading the rulesets endpoint means 'no rulesets readable' and
     is not classification=infra when the repo has branch protection to fall back

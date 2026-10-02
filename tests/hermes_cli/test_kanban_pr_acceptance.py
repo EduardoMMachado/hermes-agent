@@ -191,6 +191,41 @@ def test_rules_403_falls_back_to_exact_head_check_runs(github):
 
 
 @pytest.mark.linux_only
+def test_rules_200_empty_falls_back_to_exact_head_check_runs(github):
+    """Private free-plan repo whose rulesets endpoint answers 200 [] (not 403)
+    and has no classic branch protection: same strict fallback as 403 — every
+    check-run at the exact head must be green, and at least one must exist.
+    Measured on emana-ai/emana-app 2026-10-01: the old 'readable but empty ->
+    refuse' branch refused an approved, green PR (#165)."""
+    github["no_protection"] = True
+    github["rules_status"] = 200
+    github["rules"] = [[]]
+    github["single_run"] = True
+    with connect() as conn:
+        github.update(conclusion="success", head="a" * 40)
+        tid = kb.create_task(conn, title="empty-rules-green", completion_contract="acme/repo")
+        assert kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        receipt = json.loads(conn.execute(
+            "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
+            (tid,)).fetchone()[0])
+        assert receipt["ok"] is True
+        assert receipt["acceptance_rule"] == "exact_head_all_check_runs"
+        assert receipt["rules_readable"] is True
+
+        github.update(conclusion="failure", head="a" * 40)
+        tid = kb.create_task(conn, title="empty-rules-red", completion_contract="acme/repo")
+        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert kb.get_task(conn, tid).status != "done"
+
+        github.update(conclusion="success", head="a" * 40)
+        github["missing"] = True
+        tid = kb.create_task(conn, title="empty-rules-no-runs", completion_contract="acme/repo")
+        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert kb.get_task(conn, tid).status != "done"
+        github.pop("missing")
+
+
+@pytest.mark.linux_only
 def test_rules_403_fallback_skipped_check_runs_do_not_block(github):
     """A job disabled by `if:` (conclusion=skipped/neutral) is not evidence
     against the head under the check-runs fallback: it must not classify

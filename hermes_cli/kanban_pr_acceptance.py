@@ -113,11 +113,14 @@ def collect_acceptance(contract: str, published_pr: str | None) -> dict:
         receipt["required"] = [{"context": c, "app_id": a} for c, a in sorted(required, key=str)]
         receipt["rules_readable"] = rules_readable
         if not required:
-            if rules_readable:
-                receipt["detail"] = "No repository-required checks are configured; explicitly use a local-only contract for non-CI tasks."
-                return receipt
-            # Fallback: no classic branch protection and no readable rulesets,
-            # so there is no repository-required-checks evidence to collect.
+            # Fallback: no classic branch protection and no required checks
+            # from rulesets — either unreadable (403/404) or readable and
+            # EMPTY. GitHub started answering 200 [] instead of 403 for a
+            # private free-plan repo (emana-ai/emana-app, 2026-10-01), and the
+            # old "readable but empty -> refuse" branch then refused every
+            # approved, green PR. "Nothing required" is not evidence of
+            # anything; the evidence that DOES exist is the check-runs at the
+            # exact head, so both cases take the same strict path.
             # The evidence that DOES exist is every check-run reported at the
             # exact head — accept only when all of them succeeded.
             receipt["acceptance_rule"] = "exact_head_all_check_runs"
@@ -126,8 +129,8 @@ def collect_acceptance(contract: str, published_pr: str | None) -> dict:
             if len({r["id"] for r in runs}) != pages[0]["total_count"]:
                 raise ValueError("Incomplete check-run pagination")
             if not runs:
-                receipt["detail"] = ("No repository-required checks are readable (rulesets API returned 403/404 "
-                                      "and there is no classic branch protection) and no check-runs exist at the "
+                receipt["detail"] = ("No repository-required checks are configured or readable (no classic branch "
+                                      "protection; rulesets empty or 403/404) and no check-runs exist at the "
                                       "exact head; explicitly use a local-only contract for non-CI tasks.")
                 receipt["classification"] = "missing"
                 return receipt

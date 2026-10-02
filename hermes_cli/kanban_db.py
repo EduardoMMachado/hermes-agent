@@ -2106,12 +2106,7 @@ def recompute_ready(conn: sqlite3.Connection, failure_limit: int = None) -> int:
             if cur_status == "blocked" and _has_sticky_block(conn, task_id):
                 # Explicit human-intervention block; only ``unblock_task`` may exit it.
                 continue
-            parents = conn.execute(
-                "SELECT t.status FROM tasks t "
-                "JOIN task_links l ON l.parent_id = t.id "
-                "WHERE l.child_id = ?", (task_id,),
-            ).fetchall()
-            if all(p["status"] in ("done", "archived") for p in parents):
+            if _parents_satisfied(conn, task_id):
                 resume_status = _resume_status_from_events(conn, task_id)
                 if cur_status == "blocked":
                     # At the breaker limit, no auto-recovery (else block ->
@@ -2145,15 +2140,87 @@ def recompute_ready(conn: sqlite3.Connection, failure_limit: int = None) -> int:
 # --- Claim / complete / block ---
 
 def _parents_satisfied(conn: sqlite3.Connection, task_id: str) -> bool:
-    """Return whether every direct parent is terminal for dependency gating."""
+    """Return whether every direct parent is terminal for dependency gating.
+
+    Terminal = ``archived``, or ``done``. On a board that opts in with
+    ``"parent_gate": "merged"`` in its ``board.json``, a ``done`` parent whose
+    completion contract is a pull request also needs a ``merged`` event: an
+    approved PR is not yet on the base branch, and a child cut from that branch
+    would build on code that is not there (see :func:`_parent_gate_is_merged`).
+    """
     return conn.execute(
         # Check if this task has children that still need the workspace. If any child is not yet
         # done/archived, defer cleanup so the child can read handoff artifacts from the workspace (#33774).
         "SELECT 1 FROM task_links l "
         "JOIN tasks p ON p.id = l.parent_id "
         "WHERE l.child_id = ? "
-        "AND p.status NOT IN ('done', 'archived') LIMIT 1", (task_id,),
+        f"AND NOT ({_parent_terminal_sql(conn)}) LIMIT 1", (task_id,),
     ).fetchone() is None
+
+
+# A parent whose completion contract is a PR URL (``prepare_acceptance`` binds
+# the published PR there) is only merged once someone records a ``merged``
+# event on it — the release tooling that performs the merge does.
+_PR_CONTRACT_LIKE = "https://github.com/%/pull/%"
+_parent_gate_cache: dict[str, tuple[float, bool]] = {}
+
+
+def _parent_gate_is_merged(conn: sqlite3.Connection) -> bool:
+    """True when *conn*'s board opts into ``"parent_gate": "merged"``.
+
+    Read from the ``board.json`` beside the board's database file, cached by
+    mtime. Any doubt (in-memory DB, missing or malformed file, other value) is
+    the default gate — the behaviour every other board keeps.
+    """
+    from hermes_cli.kanban_db_connect import _main_db_file
+
+    db_file = _main_db_file(conn)
+    if not db_file:
+        return False
+    meta = Path(db_file).with_name("board.json")
+    try:
+        mtime = meta.stat().st_mtime
+    except OSError:
+        return False
+    cached = _parent_gate_cache.get(str(meta))
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    try:
+        merged = json.loads(meta.read_text(encoding="utf-8")).get("parent_gate") == "merged"
+    except (OSError, ValueError, AttributeError):
+        merged = False
+    _parent_gate_cache[str(meta)] = (mtime, merged)
+    return merged
+
+
+def _parent_terminal_sql(conn: sqlite3.Connection) -> str:
+    """SQL predicate over parent row ``p``: the parent no longer gates its children."""
+    if not _parent_gate_is_merged(conn):
+        return "p.status IN ('done', 'archived')"
+    return (
+        "p.status = 'archived' OR (p.status = 'done' AND ("
+        "p.completion_contract IS NULL "
+        f"OR p.completion_contract NOT LIKE '{_PR_CONTRACT_LIKE}' "
+        "OR EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = p.id AND e.kind = 'merged')))"
+    )
+
+
+def record_merged(conn: sqlite3.Connection, task_id: str, payload: Optional[dict] = None) -> bool:
+    """Record that ``task_id``'s PR landed on the base branch, then re-promote.
+
+    Idempotent: a second call for the same task is a no-op returning False.
+    Only meaningful on a ``"parent_gate": "merged"`` board, harmless elsewhere.
+    """
+    with write_txn(conn):
+        if conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone() is None:
+            return False
+        if conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'merged' LIMIT 1", (task_id,),
+        ).fetchone():
+            return False
+        _append_event(conn, task_id, "merged", payload)
+    recompute_ready(conn)
+    return True
 
 
 def _claim_and_open_run(

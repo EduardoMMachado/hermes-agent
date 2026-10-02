@@ -49,7 +49,7 @@ def github(tmp_path, monkeypatch):
                 if state.get("head_change"):
                     state["head"] = "b" * 40
             elif "/statuses" in self.path:
-                value = [[]]
+                value = [state.get("statuses", [])]
             elif "/pulls/" in self.path:
                 value = {"head": {"sha": sha}, "base": {"ref": "main"}, "state": "open"}
             else:
@@ -188,6 +188,40 @@ def test_rules_403_falls_back_to_exact_head_check_runs(github):
         assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         assert kb.get_task(conn, tid).status != "done"
         github.pop("stale")
+
+
+@pytest.mark.linux_only
+def test_fallback_accepts_a_green_commit_status_when_no_check_runs_exist(github):
+    """A PR whose CI ran LOCALLY (the reviewer posts a `ci` commit status on the
+    exact head; no Actions run at all) completes on that status — and only when
+    the LATEST status of each context is green."""
+    github["no_protection"] = True
+    github["rules_status"] = 403
+    github["single_run"] = True
+    github["missing"] = True  # no check-runs at all
+    PR = "https://github.com/acme/repo/pull/7"
+    try:
+        with connect() as conn:
+            github["statuses"] = [{"id": 2, "context": "ci", "state": "success"}]
+            tid = kb.create_task(conn, title="local-ci-green", completion_contract="acme/repo")
+            assert kb.complete_task(conn, tid, metadata={"published_pr": PR})
+
+            # The API lists history; the higher id is the newer status.
+            github["statuses"] = [{"id": 3, "context": "ci", "state": "failure"},
+                                  {"id": 2, "context": "ci", "state": "success"}]
+            tid = kb.create_task(conn, title="local-ci-red-after-green", completion_contract="acme/repo")
+            assert not kb.complete_task(conn, tid, metadata={"published_pr": PR})
+
+            github["statuses"] = [{"id": 4, "context": "ci", "state": "pending"}]
+            tid = kb.create_task(conn, title="local-ci-pending", completion_contract="acme/repo")
+            assert not kb.complete_task(conn, tid, metadata={"published_pr": PR})
+
+            github["statuses"] = []
+            tid = kb.create_task(conn, title="no-evidence", completion_contract="acme/repo")
+            assert not kb.complete_task(conn, tid, metadata={"published_pr": PR})
+    finally:
+        github.pop("missing", None)
+        github.pop("statuses", None)
 
 
 @pytest.mark.linux_only

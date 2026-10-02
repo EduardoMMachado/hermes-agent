@@ -128,10 +128,24 @@ def collect_acceptance(contract: str, published_pr: str | None) -> dict:
             runs = [run for page in pages for run in page["check_runs"]]
             if len({r["id"] for r in runs}) != pages[0]["total_count"]:
                 raise ValueError("Incomplete check-run pagination")
-            if not runs:
+            # Commit STATUSES are evidence too, under the same exact-head rule.
+            # A repo whose PRs run no Actions (emana-ai/emana-app, 2026-10-02:
+            # PRs into the release are validated by the reviewer running the
+            # CI locally, who posts a `ci` commit status on the exact head)
+            # has no check-runs there at all. Only the LATEST status per
+            # context counts — the same `max(id)` the required-checks branch
+            # below uses for a legacy status — so a red after a green is red.
+            statuses = [{**s, "sha": sha} for page in _api(
+                f"repos/{repo}/commits/{sha}/statuses?per_page=100", paginate=True) for s in page]
+            latest_status: dict = {}
+            for st in statuses:
+                ctx = st.get("context")
+                if ctx not in latest_status or st["id"] > latest_status[ctx]["id"]:
+                    latest_status[ctx] = st
+            if not runs and not latest_status:
                 receipt["detail"] = ("No repository-required checks are configured or readable (no classic branch "
-                                      "protection; rulesets empty or 403/404) and no check-runs exist at the "
-                                      "exact head; explicitly use a local-only contract for non-CI tasks.")
+                                      "protection; rulesets empty or 403/404) and no check-runs or commit statuses "
+                                      "exist at the exact head; explicitly use a local-only contract for non-CI tasks.")
                 receipt["classification"] = "missing"
                 return receipt
             # A job disabled by `if:` at the workflow level produces no
@@ -156,6 +170,12 @@ def collect_acceptance(contract: str, published_pr: str | None) -> dict:
                     "classification": classification, "conclusion": run.get("conclusion")})
                 if classification not in ignorable_fallback_outcomes:
                     outcomes.append(classification)
+            for context, st in sorted(latest_status.items(), key=lambda kv: str(kv[0])):
+                classification = _classify(st, sha, st["state"], False)
+                receipt["checks"].append({"name": context, "id": st["id"],
+                    "url": st.get("target_url"), "head_sha": sha,
+                    "classification": classification, "conclusion": st["state"]})
+                outcomes.append(classification)
             return _finalize(receipt, repo, number, sha, branch, outcomes)
         receipt["acceptance_rule"] = "repository_required_checks"
         pages = _api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100&filter=latest", paginate=True)

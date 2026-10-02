@@ -113,6 +113,32 @@ def test_malformed_board_json_keeps_the_default_gate(kanban_home):
         assert kb.get_task(conn, child).status == "ready"
 
 
+def test_link_to_a_done_but_unmerged_parent_demotes_the_child(kanban_home):
+    """`link` uses the SAME terminal predicate as the claim: on a merged-gate
+    board, linking a `ready` child under a `done` parent whose PR has not
+    merged demotes the child to `todo` (2026-10-02: t_b7354264 under B45 was
+    left `ready` with PR #182 still open)."""
+    with kbc.connect_closing() as conn:
+        _opt_in(conn)
+        parent = kb.create_task(conn, title="parent", assignee="dev")
+        with kbc.write_txn(conn):
+            conn.execute(
+                "UPDATE tasks SET status='done', completion_contract=? WHERE id=?", (PR, parent),
+            )
+        child = kb.create_task(conn, title="child", assignee="dev")
+        assert kb.get_task(conn, child).status == "ready"
+        assert kb.link_tasks(conn, parent, child) is True
+        assert kb.get_task(conn, child).status == "todo"
+
+        kb.record_merged(conn, parent, {"pr": PR, "sha": "b" * 40})
+        assert kb.get_task(conn, child).status == "ready"
+
+        # A merged parent gates nothing: a second child linked now stays ready.
+        other = kb.create_task(conn, title="other", assignee="dev")
+        assert kb.link_tasks(conn, parent, other) is False
+        assert kb.get_task(conn, other).status == "ready"
+
+
 def test_record_merged_unknown_task(kanban_home):
     with kbc.connect_closing() as conn:
         assert kb.record_merged(conn, "t_nope") is False

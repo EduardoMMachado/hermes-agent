@@ -1628,7 +1628,17 @@ def link_tasks(conn: sqlite3.Connection, parent_id: str, child_id: str) -> bool:
         _link(conn, parent_id, child_id)
         # If child was ready but parent is not yet terminal, demote child to todo
         # (archived counts as terminal, matching _parents_satisfied/recompute_ready).
-        if _task_status(conn, parent_id) not in ("done", "archived"):
+        # "Terminal" is the SAME predicate the claim uses (`_parent_terminal_sql`):
+        # on a `"parent_gate": "merged"` board a `done` parent whose PR has not
+        # merged still gates. Testing `status in (done, archived)` here left the
+        # child `ready` under an unmerged parent — the claim refused it, but the
+        # board and the CLI said "ready" (measured 2026-10-02: t_b7354264 under
+        # B45, done with PR #182 still open).
+        parent_terminal = conn.execute(
+            f"SELECT 1 FROM tasks p WHERE p.id = ? AND ({_parent_terminal_sql(conn)})",
+            (parent_id,),
+        ).fetchone() is not None
+        if not parent_terminal:
             cur = conn.execute(
                 "UPDATE tasks SET status = 'todo' WHERE id = ? AND status = 'ready'",
                 (child_id,),

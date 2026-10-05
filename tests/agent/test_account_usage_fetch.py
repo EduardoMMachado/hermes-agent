@@ -201,3 +201,21 @@ def test_fetch_account_usage_openrouter_omits_quota_window_when_key_has_no_limit
     assert snapshot.windows == ()
     assert "Credits balance: $74.50" in snapshot.details
     assert "API key usage: $25.50 total • $1.25 today • $4.50 this week • $18.00 this month" in snapshot.details
+
+
+def test_anthropic_utilization_is_a_percent_not_a_fraction(monkeypatch):
+    # Right after a window reset the API reports utilization 1.0 (= 1%).
+    # Read as a fraction it became 100% and the kanban usage gate parked
+    # every card (2026-10-05).
+    import agent.account_usage as au
+
+    monkeypatch.setattr(au, "resolve_anthropic_token", lambda: "sk-ant-oat01-x")
+    monkeypatch.setattr(au, "_is_oauth_token", lambda token: True)
+    payload = {
+        "five_hour": {"utilization": 1.0, "resets_at": "2026-10-06T00:30:00+00:00"},
+        "seven_day": {"utilization": 0.5, "resets_at": "2026-10-09T18:00:00+00:00"},
+    }
+    monkeypatch.setattr(au, "_get_json", lambda url, headers, timeout=15.0: payload)
+    snapshot = au._fetch_anthropic_account_usage()
+    used = {w.label: w.used_percent for w in snapshot.windows}
+    assert used == {"Current session": 1.0, "Current week": 0.5}

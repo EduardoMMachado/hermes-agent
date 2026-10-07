@@ -3633,7 +3633,51 @@ def _refresh_anthropic_credentials(failed_api_key: str = "") -> bool:
     # Never spend an ambient login's refresh rotation for another request's key.
     if isinstance(creds, dict) and creds.get("accessToken") == token and creds.get("refreshToken"):
         return bool(_refresh_oauth_token(creds))
+    # The failed token is a subscription token that `claude` has since replaced: the
+    # replacement on disk IS the recovery. The retry rebuilds through the main route, where
+    # _supersede_stale_anthropic_oauth_key swaps it in.
+    if _is_superseded_claude_code_token(token, creds):
+        return True
     return False
+
+
+def _is_superseded_claude_code_token(token: Any, creds: Any = None) -> bool:
+    """True when ``token`` is a Claude Code OAuth token that is no longer the one on disk."""
+    from agent.anthropic_credentials import _is_oauth_token, read_claude_code_credentials
+    if not isinstance(token, str) or not token or not _is_oauth_token(token):
+        return False
+    if creds is None:
+        creds = read_claude_code_credentials()
+    live = creds.get("accessToken") if isinstance(creds, dict) else None
+    return isinstance(live, str) and bool(live) and live != token
+
+
+def _supersede_stale_anthropic_oauth_key(api_key: Any, base_url: str) -> Any:
+    """Swap a superseded Claude Code token in the session's runtime for the one on disk.
+
+    Auxiliary tasks route onto the main session with the key captured when the agent was
+    built. The main client mints its bearer per request, so it never 401s and nothing ever
+    updates that captured key: hours after `claude` refreshes the subscription token, every
+    auxiliary call (compression above all) presents the replaced one and gets 401 "OAuth
+    access token has been revoked" while the token on disk works.
+
+    Only a native-Anthropic OAuth token that the pool does not own is swapped. A pooled
+    credential is pinned on purpose (a second account), an API key does not rotate, and a
+    third-party anthropic_messages endpoint must never receive the ~/.claude token (#1739).
+    """
+    if not isinstance(api_key, str) or not base_url_host_matches(base_url or "", "anthropic.com"):
+        return api_key
+    try:
+        if load_pool("anthropic").entry_id_for_api_key(api_key):
+            return api_key
+        from agent.anthropic_credentials import read_claude_code_credentials
+        creds = read_claude_code_credentials()
+        if isinstance(creds, dict) and _is_superseded_claude_code_token(api_key, creds):
+            logger.info("Auxiliary: session's Claude Code token was refreshed on disk; using the current one")
+            return creds["accessToken"]
+    except Exception as exc:  # noqa: BLE001 — a read failure keeps the session key, never ends the call
+        logger.debug("Auxiliary: could not check the session's Claude Code token: %s", exc)
+    return api_key
 
 
 def _refresh_xai_oauth_credentials() -> bool:
@@ -4343,7 +4387,8 @@ def _try_main_provider_route(
             explicit_api_key = runtime_api_key
     elif runtime_api_key:
         # Pin aux to the main session's working key, not a re-selected (maybe exhausted) pool key.
-        explicit_api_key = runtime_api_key
+        # Unless it is a Claude Code token `claude` already replaced: then "working" is the one on disk.
+        explicit_api_key = _supersede_stale_anthropic_oauth_key(runtime_api_key, runtime_base_url)
     # Skip if the main provider was recently 402'd (unhealthy TTL bounds the bypass).
     main_chain_label = _normalize_chain_label(resolved_provider)
     if main_chain_label and _is_provider_unhealthy(main_chain_label, health_base_url):

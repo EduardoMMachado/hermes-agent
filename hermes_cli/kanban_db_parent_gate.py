@@ -48,7 +48,7 @@ def _parent_gate_is_merged(conn: sqlite3.Connection) -> bool:
     if cached is not None and cached[0] == mtime:
         return cached[1]
     try:
-        merged = json.loads(meta.read_text(encoding="utf-8")).get("parent_gate") == "merged"
+        merged = json.loads(meta.read_text(encoding="utf-8-sig")).get("parent_gate") == "merged"
     except (OSError, ValueError, AttributeError):
         merged = False
     _parent_gate_cache[str(meta)] = (mtime, merged)

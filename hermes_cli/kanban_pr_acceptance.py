@@ -2,31 +2,22 @@
 
 Network work happens outside SQLite transactions. The lifecycle owner persists
 receipts only after rechecking the captured run/status/contract under its lock.
+
+``gh`` runs as the card's assignee profile (``profile_home``), not the ambient
+login: :func:`_gh_env` resolves that profile's own credentials/config for the
+subprocess — a multi-profile host's default ``gh`` login cannot read another
+org's private repos (#122689).
 """
 from __future__ import annotations
 
 import json
 import re
 import subprocess
+from pathlib import Path
 from urllib.parse import quote
 
 _REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _PR = re.compile(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([1-9][0-9]*)")
-_HTTP_STATUS = re.compile(r"\(HTTP (\d{3})\)")
-
-
-class _GhHttpError(Exception):
-    """A `gh api` call reached GitHub and got back a non-2xx HTTP status.
-
-    Distinct from OSError/SubprocessError (gh missing, timeout, network down)
-    and from ValueError/KeyError/TypeError (malformed/incomplete response):
-    those are genuine infra failures. An HTTP status means GitHub answered —
-    whether that answer counts as infra depends on the status and the caller.
-    """
-
-    def __init__(self, status: int, message: str):
-        super().__init__(message)
-        self.status = status
 
 
 def validate_contract(value: str | None) -> str:
@@ -37,42 +28,95 @@ def validate_contract(value: str | None) -> str:
     return value
 
 
-def _api(endpoint: str, *, query: str | None = None, paginate: bool = False):
+def _api(endpoint: str, *, query: str | None = None, paginate: bool = False,
+         profile_home: str | None = None):
     command = ["gh", "api", endpoint, "--hostname", "github.com"]
     if query is not None:
         command += ["-f", "query=" + query]
     if paginate:
         command += ["--paginate", "--slurp"]
-    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
-                            text=True, timeout=30)
-    if result.returncode != 0:
-        status_match = _HTTP_STATUS.search(result.stderr or "")
-        if status_match:
-            raise _GhHttpError(int(status_match.group(1)), "gh api returned an HTTP error")
-        raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
+    try:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, encoding="utf-8", errors="replace", timeout=30,
+                                check=True, env=_gh_env(profile_home))
+    except subprocess.CalledProcessError as exc:
+        # 401/403/404 = the login cannot see this repository (wrong profile identity
+        # or missing grant), not a transient API failure. Persist only the status
+        # code + endpoint, never gh's stderr (credentials/host details).
+        denied = re.search(r"HTTP (40[134])", exc.stderr or "")
+        if denied:
+            raise _GateAuthError(f"HTTP {denied[1]} on {endpoint.split('?')[0]}",
+                                 status=int(denied[1])) from None
+        if exc.returncode == 4:  # gh's authentication-required exit: this profile has no login
+            raise _GateAuthError(f"gh has no login for {endpoint.split('?')[0]}") from None
+        raise
     value = json.loads(result.stdout)
     if isinstance(value, dict) and value.get("errors"):
         raise ValueError("GitHub returned incomplete GraphQL evidence")
     return value
 
 
-def _finalize(receipt: dict, repo: str, number: int, sha: str, branch: str, outcomes: list) -> dict:
-    # Re-read after all pages: old-head successes are never transferable.
-    current = _api(f"repos/{repo}/pulls/{number}")
-    if current["head"]["sha"] != sha or current["base"]["ref"] != branch or (current["state"] == "closed" and not current.get("merged")):
-        receipt.update(classification="stale", detail="PR head/base changed while collecting evidence; retry.")
-        return receipt
-    receipt["classification"] = next((x for x in outcomes if x != "success"), "missing" if not outcomes else "success")
-    receipt["ok"] = receipt["classification"] == "success"
-    return receipt
+class _GateAuthError(RuntimeError):
+    """gh was refused at HTTP 401/403/404 (or GraphQL returned no repository):
+    this profile's login cannot see the repo — an identity problem to fix, not
+    an infrastructure blip to retry. ``status`` is the HTTP code when there is one."""
+
+    def __init__(self, message: str, *, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
-def collect_acceptance(contract: str, published_pr: str | None) -> dict:
+def _gh_env(profile_home: str | None) -> dict[str, str] | None:
+    """Child env for ``gh``: the card's profile identity when one is resolvable.
+
+    The completion boundary runs in the worker (assignee), the CLI, or a
+    reviewer/dispatcher turn, so an ambient ``gh`` login is whichever process
+    happened to call it (#122689). ``served_profile_child_env(inherit_credentials=True)``
+    is the seam for "this child acts for that profile": it scrubs the launch
+    profile's credential residue and overlays the target profile's own
+    ``GH_TOKEN``/``GH_CONFIG_DIR`` (its ``.env`` + external secret sources).
+    ``None`` keeps the ambient env — unassigned cards behave exactly as before.
+    """
+    if not profile_home:
+        return None
+    from tools.environments.local import _is_routed_home, hermes_subprocess_env, served_profile_child_env
+    base = hermes_subprocess_env(inherit_credentials=True)
+    routed = _is_routed_home(profile_home)
+    if routed:
+        # gh's config dir decides which login `gh api` uses, yet it is a path, not a
+        # credential, so no scrub list sees it; the target's own value is overlaid from its .env.
+        base.pop("GH_CONFIG_DIR", None)
+    env = served_profile_child_env(base=base, target_home=profile_home, inherit_credentials=True)
+    if routed and not (env.keys() & {"GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR"}):
+        # HOME/XDG_CONFIG_HOME are still the launch process's: without a login of its own the
+        # child would fall through to ~/.config/gh/hosts.yml — the ambient login. Pin gh's config
+        # to a profile-owned dir so it fails "not logged in" (exit 4 -> auth) instead.
+        env["GH_CONFIG_DIR"] = str(Path(profile_home) / "gh")
+    return env
+
+
+def _assignee_profile_home(assignee: str | None) -> str | None:
+    """Home whose ``gh`` login must read the contract repo — the assignee's, resolved
+    exactly as the dispatcher resolves the worker's home — or None (unassigned) so the
+    ambient login is used. An assigned card whose profile cannot be resolved is an
+    identity failure (``auth``), never a silent fall-through to the ambient login."""
+    if not assignee:
+        return None
+    from hermes_cli.profiles import normalize_profile_name, resolve_profile_env
+    try:
+        return resolve_profile_env(normalize_profile_name(assignee))
+    except (FileNotFoundError, ValueError):
+        raise _GateAuthError(f"assignee profile {assignee!r} cannot be resolved") from None
+
+
+def collect_acceptance(contract: str, published_pr: str | None,
+                       assignee: str | None = None) -> dict:
     receipt = {"ok": False, "classification": "missing", "head_sha": None,
                "pr_url": published_pr, "checks": [], "acceptance_rule": None,
                "recovery": "Fix required failures, rerun infrastructure checks or wait, then retry completion. "
                            "Use kanban_block if human input is needed; receipts remain on the task event log."}
     try:
+        profile_home = _assignee_profile_home(assignee)
         declared = _PR.fullmatch(contract)
         url = contract if declared else published_pr
         match = _PR.fullmatch(url or "")
@@ -85,26 +129,28 @@ def collect_acceptance(contract: str, published_pr: str | None) -> dict:
         query = '''{repository(owner:%s,name:%s){pullRequest(number:%d){headRefOid baseRefName state
             baseRef{branchProtectionRule{requiredStatusChecks{context app{databaseId}}}}}}}''' % (
                 json.dumps(owner), json.dumps(name), number)
-        pr = _api("graphql", query=query)["data"]["repository"]["pullRequest"]
+        repository = _api("graphql", query=query, profile_home=profile_home)["data"]["repository"]
+        if repository is None:
+            # A private repo the login cannot read resolves to null, not an error.
+            raise _GateAuthError(f"HTTP 404 on graphql {repo}")
+        pr = repository["pullRequest"]
         sha, branch = pr["headRefOid"], pr["baseRefName"]
         receipt["head_sha"] = sha
         if not re.fullmatch(r"[0-9a-f]{40}", sha) or pr["state"] not in {"OPEN", "MERGED"}:
             raise ValueError("PR is closed or current head is unavailable")
         protection = (pr.get("baseRef") or {}).get("branchProtectionRule") or {}
         required = {(r["context"], (r.get("app") or {}).get("databaseId")) for r in protection.get("requiredStatusChecks", [])}
-        # A 403/404 here means the repo's plan doesn't expose the rulesets API
-        # (private repo without GitHub Pro/rulesets) — that is "no rulesets
-        # readable", not an infra failure. Any other status (401, 5xx, ...) is
-        # a genuine auth/availability problem and must still classify infra.
+        # The GraphQL read above already proved this login can see the repo, so a 403/404 here
+        # is the plan not exposing the rulesets API (private repo without rulesets), not an
+        # identity problem: "no rulesets readable". A 401 is still auth.
         rules_readable = True
         try:
-            rules = _api(f"repos/{repo}/rules/branches/{quote(branch, safe='')}?per_page=100", paginate=True)
-        except _GhHttpError as e:
-            if e.status in (403, 404):
-                rules = []
-                rules_readable = False
-            else:
+            rules = _api(f"repos/{repo}/rules/branches/{quote(branch, safe='')}?per_page=100",
+                         paginate=True, profile_home=profile_home)
+        except _GateAuthError as exc:
+            if exc.status not in (403, 404):
                 raise
+            rules, rules_readable = [], False
         for page in rules:
             for rule in page:
                 if rule["type"] == "required_status_checks":
@@ -113,76 +159,18 @@ def collect_acceptance(contract: str, published_pr: str | None) -> dict:
         receipt["required"] = [{"context": c, "app_id": a} for c, a in sorted(required, key=str)]
         receipt["rules_readable"] = rules_readable
         if not required:
-            # Fallback: no classic branch protection and no required checks
-            # from rulesets — either unreadable (403/404) or readable and
-            # EMPTY. GitHub started answering 200 [] instead of 403 for a
-            # private free-plan repo (emana-ai/emana-app, 2026-10-01), and the
-            # old "readable but empty -> refuse" branch then refused every
-            # approved, green PR. "Nothing required" is not evidence of
-            # anything; the evidence that DOES exist is the check-runs at the
-            # exact head, so both cases take the same strict path.
-            # The evidence that DOES exist is every check-run reported at the
-            # exact head — accept only when all of them succeeded.
-            receipt["acceptance_rule"] = "exact_head_all_check_runs"
-            pages = _api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100&filter=latest", paginate=True)
-            runs = [run for page in pages for run in page["check_runs"]]
-            if len({r["id"] for r in runs}) != pages[0]["total_count"]:
-                raise ValueError("Incomplete check-run pagination")
-            # Commit STATUSES are evidence too, under the same exact-head rule.
-            # A repo whose PRs run no Actions (emana-ai/emana-app, 2026-10-02:
-            # PRs into the release are validated by the reviewer running the
-            # CI locally, who posts a `ci` commit status on the exact head)
-            # has no check-runs there at all. Only the LATEST status per
-            # context counts — the same `max(id)` the required-checks branch
-            # below uses for a legacy status — so a red after a green is red.
-            statuses = [{**s, "sha": sha} for page in _api(
-                f"repos/{repo}/commits/{sha}/statuses?per_page=100", paginate=True) for s in page]
-            latest_status: dict = {}
-            for st in statuses:
-                ctx = st.get("context")
-                if ctx not in latest_status or st["id"] > latest_status[ctx]["id"]:
-                    latest_status[ctx] = st
-            if not runs and not latest_status:
-                receipt["detail"] = ("No repository-required checks are configured or readable (no classic branch "
-                                      "protection; rulesets empty or 403/404) and no check-runs or commit statuses "
-                                      "exist at the exact head; explicitly use a local-only contract for non-CI tasks.")
-                receipt["classification"] = "missing"
-                return receipt
-            # A job disabled by `if:` at the workflow level produces no
-            # evidence against this head either way — GitHub reports it as
-            # skipped/neutral without ever running it. Under this fallback
-            # (no repository-required checks exist to pin a context as
-            # mandatory) such a check-run cannot be allowed to block
-            # completion, or every future PR touching that workflow would be
-            # stuck forever. It still must not be enough on its own: a head
-            # where every check-run was skipped/neutral has no positive
-            # evidence, so _finalize's "missing" default (empty outcomes)
-            # applies. Anything else abnormal (failure, cancelled,
-            # timed_out, action_required, stale, pending) is real negative
-            # evidence and keeps blocking via the normal outcomes list.
-            ignorable_fallback_outcomes = {"skipped", "neutral"}
-            outcomes = []
-            for run in runs:
-                classification = _classify(run, sha, run.get("conclusion"), True)
-                receipt["checks"].append({"name": run["name"], "id": run["id"],
-                    "url": run.get("html_url") or run.get("target_url"),
-                    "head_sha": run.get("head_sha", run.get("sha")),
-                    "classification": classification, "conclusion": run.get("conclusion")})
-                if classification not in ignorable_fallback_outcomes:
-                    outcomes.append(classification)
-            for context, st in sorted(latest_status.items(), key=lambda kv: str(kv[0])):
-                classification = _classify(st, sha, st["state"], False)
-                receipt["checks"].append({"name": context, "id": st["id"],
-                    "url": st.get("target_url"), "head_sha": sha,
-                    "classification": classification, "conclusion": st["state"]})
-                outcomes.append(classification)
-            return _finalize(receipt, repo, number, sha, branch, outcomes)
+            # Nothing is required — rulesets unreadable (403/404) or readable and EMPTY (GitHub
+            # answers 200 [] for some private free-plan repos). "Nothing required" is not evidence
+            # either way; the evidence that does exist is every check at the exact head.
+            return _exact_head_fallback(receipt, repo, number, sha, branch, profile_home)
         receipt["acceptance_rule"] = "repository_required_checks"
-        pages = _api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100&filter=latest", paginate=True)
+        pages = _api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100&filter=latest",
+                     paginate=True, profile_home=profile_home)
         runs = [run for page in pages for run in page["check_runs"]]
         if len({r["id"] for r in runs}) != pages[0]["total_count"]:
             raise ValueError("Incomplete check-run pagination")
-        statuses = [{**s, "sha": sha} for page in _api(f"repos/{repo}/commits/{sha}/statuses?per_page=100", paginate=True) for s in page]
+        statuses = [{**s, "sha": sha} for page in _api(f"repos/{repo}/commits/{sha}/statuses?per_page=100",
+                                                       paginate=True, profile_home=profile_home) for s in page]
         outcomes = []
         for context, app_id in sorted(required, key=str):
             matching = [r for r in runs if r["name"] == context and
@@ -202,11 +190,72 @@ def collect_acceptance(contract: str, published_pr: str | None) -> dict:
                     "url": check.get("html_url") or check.get("target_url"),
                     "head_sha": check.get("head_sha", check.get("sha")),
                     "classification": classification, "conclusion": outcome})
-        return _finalize(receipt, repo, number, sha, branch, outcomes)
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, IndexError, _GhHttpError):
+        return _finalize(receipt, repo, number, sha, branch, outcomes, profile_home)
+    except _GateAuthError as exc:
+        login = f"assignee profile {assignee!r}'s gh login" if assignee else "the ambient gh login"
+        receipt.update(classification="auth",
+                       detail=f"GitHub refused the acceptance read ({exc}) as {login}; "
+                              "fix that profile's GitHub credentials/access to the repository, then retry completion.")
+        return receipt
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, IndexError):
         # Never persist gh stderr (credentials/host details); the failed phase is actionable.
         receipt.update(classification="infra", detail="GitHub acceptance evidence unavailable or incomplete; check gh authentication/API access and retry.")
         return receipt
+
+
+def _finalize(receipt: dict, repo: str, number: int, sha: str, branch: str, outcomes: list,
+              profile_home: str | None) -> dict:
+    # Re-read after all pages: old-head successes are never transferable.
+    current = _api(f"repos/{repo}/pulls/{number}", profile_home=profile_home)
+    if current["head"]["sha"] != sha or current["base"]["ref"] != branch or (current["state"] == "closed" and not current.get("merged")):
+        receipt.update(classification="stale", detail="PR head/base changed while collecting evidence; retry.")
+        return receipt
+    receipt["classification"] = next((x for x in outcomes if x != "success"), "missing" if not outcomes else "success")
+    receipt["ok"] = receipt["classification"] == "success"
+    return receipt
+
+
+def _exact_head_fallback(receipt: dict, repo: str, number: int, sha: str, branch: str,
+                         profile_home: str | None) -> dict:
+    """Accept on the evidence that exists at the exact head when no check is required.
+
+    Every check-run, plus the LATEST commit status per context (a repo whose PRs run no
+    Actions may carry only a status posted by a local CI run) — so a red after a green is
+    red. A job disabled by ``if:`` reports skipped/neutral without running: it is no
+    evidence either way and cannot block, but a head with only such runs has no positive
+    evidence and stays ``missing``.
+    """
+    receipt["acceptance_rule"] = "exact_head_all_check_runs"
+    pages = _api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100&filter=latest",
+                 paginate=True, profile_home=profile_home)
+    runs = [run for page in pages for run in page["check_runs"]]
+    if len({r["id"] for r in runs}) != pages[0]["total_count"]:
+        raise ValueError("Incomplete check-run pagination")
+    latest_status: dict = {}
+    for page in _api(f"repos/{repo}/commits/{sha}/statuses?per_page=100", paginate=True, profile_home=profile_home):
+        for st in page:
+            ctx = st.get("context")
+            if ctx not in latest_status or st["id"] > latest_status[ctx]["id"]:
+                latest_status[ctx] = {**st, "sha": sha}
+    if not runs and not latest_status:
+        receipt["detail"] = ("No repository-required checks are configured or readable and no check-runs or "
+                             "commit statuses exist at the exact head; explicitly use a local-only contract "
+                             "for non-CI tasks.")
+        return receipt
+    outcomes = []
+    for run in runs:
+        classification = _classify(run, sha, run.get("conclusion"), True)
+        receipt["checks"].append({"name": run["name"], "id": run["id"],
+            "url": run.get("html_url") or run.get("target_url"), "head_sha": run.get("head_sha", run.get("sha")),
+            "classification": classification, "conclusion": run.get("conclusion")})
+        if classification not in {"skipped", "neutral"}:
+            outcomes.append(classification)
+    for context, st in sorted(latest_status.items(), key=lambda kv: str(kv[0])):
+        classification = _classify(st, sha, st["state"], False)
+        receipt["checks"].append({"name": context, "id": st["id"], "url": st.get("target_url"), "head_sha": sha,
+                                  "classification": classification, "conclusion": st["state"]})
+        outcomes.append(classification)
+    return _finalize(receipt, repo, number, sha, branch, outcomes, profile_home)
 
 
 def _classify(check: dict, sha: str, outcome: str | None, is_run: bool) -> str:
@@ -214,11 +263,7 @@ def _classify(check: dict, sha: str, outcome: str | None, is_run: bool) -> str:
         return "stale"
     if is_run and check.get("status") != "completed":
         return "pending"
-    # skipped/neutral get their own names (not lumped into "infra") so the
-    # exact_head_all_check_runs fallback can tell "this job produced no
-    # evidence" apart from a genuine infra-classified outcome. The
-    # repository_required_checks path still blocks on them: they are simply
-    # not "success", and _finalize takes the first non-success outcome.
-    mapping: dict[str, str] = {"success": "success", "failure": "failure", "error": "infra",
-                                "pending": "pending", "skipped": "skipped", "neutral": "neutral"}
-    return mapping.get(outcome or "", "infra")
+    # skipped/neutral keep their names so the exact-head fallback can tell "no evidence" from
+    # infra; the required-checks path still blocks on them (they are not "success").
+    return {"success": "success", "failure": "failure", "error": "infra", "pending": "pending",
+            "skipped": "skipped", "neutral": "neutral"}.get(outcome or "", "infra")

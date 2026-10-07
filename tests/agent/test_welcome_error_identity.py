@@ -21,6 +21,7 @@ def agent_for(api_key, base_url):
         _summarize_api_error=lambda e: str(e), _emit_status=lambda *a, **kw: None,
         _persist_session=lambda *a, **kw: None, _plines=lambda *a, **kw: None, _vprint=lambda *a, **kw: None,
         _buffer_status=lambda *a, **kw: None, _buffer_vprint=lambda *a, **kw: None,
+        _emit_diagnostic_status=lambda *a, **kw: None, _buffer_diagnostic_status=lambda *a, **kw: None,
         _try_activate_fallback=lambda: False,
     )
 
@@ -44,7 +45,7 @@ def test_named_errors_do_not_offer_anonymous_recovery(api_key, base_url, case):
     if status == 403:
         result = nonretryable_client_error_result(agent, error, classified, status_code=status, **common)
     else:
-        result = max_retries_exhausted_result(agent, error, classified, max_retries=3,
+        result = max_retries_exhausted_result(agent, error, classified, attempts=3,
                                              is_rate_limited=status == 429, error_msg=message, **common)
     assert "welcome_refusal" not in classified.error_context
     assert "welcome_route" not in classified.error_context

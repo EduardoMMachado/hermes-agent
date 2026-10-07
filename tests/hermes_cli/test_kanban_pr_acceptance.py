@@ -260,7 +260,7 @@ def test_rules_403_falls_back_to_exact_head_check_runs(github):
         # 1. exact head has a successful check-run -> completes.
         github.update(conclusion="success", head="a" * 40)
         tid = kb.create_task(conn, title="green", completion_contract="acme/repo")
-        assert kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         receipt = json.loads(conn.execute(
             "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
             (tid,)).fetchone()[0])
@@ -272,21 +272,21 @@ def test_rules_403_falls_back_to_exact_head_check_runs(github):
         github.update(conclusion="success", head="a" * 40)
         github["missing"] = True
         tid = kb.create_task(conn, title="no-runs", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         assert kb.get_task(conn, tid).status != "done"
         github.pop("missing")
 
         # 3. exact head has a failing check-run -> cannot complete.
         github.update(conclusion="failure", head="a" * 40)
         tid = kb.create_task(conn, title="red", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         assert kb.get_task(conn, tid).status != "done"
 
         # 4. the check-run belongs to a different SHA than the exact head -> cannot complete.
         github.update(conclusion="success", head="a" * 40)
         github["stale"] = True
         tid = kb.create_task(conn, title="stale-run", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         assert kb.get_task(conn, tid).status != "done"
         github.pop("stale")
 
@@ -305,21 +305,21 @@ def test_fallback_accepts_a_green_commit_status_when_no_check_runs_exist(github)
         with connect() as conn:
             github["statuses"] = [{"id": 2, "context": "ci", "state": "success"}]
             tid = kb.create_task(conn, title="local-ci-green", completion_contract="acme/repo")
-            assert kb.complete_task(conn, tid, metadata={"published_pr": PR})
+            assert kb.complete_task(conn, tid, result="done", metadata={"published_pr": PR})
 
             # The API lists history; the higher id is the newer status.
             github["statuses"] = [{"id": 3, "context": "ci", "state": "failure"},
                                   {"id": 2, "context": "ci", "state": "success"}]
             tid = kb.create_task(conn, title="local-ci-red-after-green", completion_contract="acme/repo")
-            assert not kb.complete_task(conn, tid, metadata={"published_pr": PR})
+            assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": PR})
 
             github["statuses"] = [{"id": 4, "context": "ci", "state": "pending"}]
             tid = kb.create_task(conn, title="local-ci-pending", completion_contract="acme/repo")
-            assert not kb.complete_task(conn, tid, metadata={"published_pr": PR})
+            assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": PR})
 
             github["statuses"] = []
             tid = kb.create_task(conn, title="no-evidence", completion_contract="acme/repo")
-            assert not kb.complete_task(conn, tid, metadata={"published_pr": PR})
+            assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": PR})
     finally:
         github.pop("missing", None)
         github.pop("statuses", None)
@@ -339,7 +339,7 @@ def test_rules_200_empty_falls_back_to_exact_head_check_runs(github):
     with connect() as conn:
         github.update(conclusion="success", head="a" * 40)
         tid = kb.create_task(conn, title="empty-rules-green", completion_contract="acme/repo")
-        assert kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         receipt = json.loads(conn.execute(
             "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
             (tid,)).fetchone()[0])
@@ -349,13 +349,13 @@ def test_rules_200_empty_falls_back_to_exact_head_check_runs(github):
 
         github.update(conclusion="failure", head="a" * 40)
         tid = kb.create_task(conn, title="empty-rules-red", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         assert kb.get_task(conn, tid).status != "done"
 
         github.update(conclusion="success", head="a" * 40)
         github["missing"] = True
         tid = kb.create_task(conn, title="empty-rules-no-runs", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         assert kb.get_task(conn, tid).status != "done"
         github.pop("missing")
 
@@ -376,7 +376,7 @@ def test_rules_403_fallback_skipped_check_runs_do_not_block(github):
         #    the skipped runs are NOT classified infra.
         github.update(conclusion="success", head="a" * 40)
         tid = kb.create_task(conn, title="skip-plus-success", completion_contract="acme/repo")
-        assert kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         receipt = json.loads(conn.execute(
             "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
             (tid,)).fetchone()[0])
@@ -390,7 +390,7 @@ def test_rules_403_fallback_skipped_check_runs_do_not_block(github):
         #    -> no positive evidence, cannot complete.
         github.update(conclusion="skipped", head="a" * 40)
         tid = kb.create_task(conn, title="all-skipped", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         receipt = json.loads(conn.execute(
             "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
             (tid,)).fetchone()[0])
@@ -401,7 +401,7 @@ def test_rules_403_fallback_skipped_check_runs_do_not_block(github):
         # 3. A genuinely failing run alongside skipped ones still blocks.
         github.update(conclusion="failure", head="a" * 40)
         tid = kb.create_task(conn, title="skip-plus-failure", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         receipt = json.loads(conn.execute(
             "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
             (tid,)).fetchone()[0])
@@ -420,7 +420,7 @@ def test_rules_403_is_distinguished_from_genuine_infra_failure(github, monkeypat
         github["rules_status"] = 403
         github.update(conclusion="success", head="a" * 40)
         tid = kb.create_task(conn, title="rules-403-with-protection", completion_contract="acme/repo")
-        assert kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         receipt = json.loads(conn.execute(
             "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
             (tid,)).fetchone()[0])
@@ -432,7 +432,7 @@ def test_rules_403_is_distinguished_from_genuine_infra_failure(github, monkeypat
         github["rules_status"] = 200
         monkeypatch.setenv("PR_ACCEPTANCE_FORCE_RULES_INFRA", "1")
         tid = kb.create_task(conn, title="rules-network-failure", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
+        assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/acme/repo/pull/7"})
         receipt = json.loads(conn.execute(
             "SELECT payload FROM task_events WHERE task_id=? AND kind='pr_acceptance' ORDER BY id DESC",
             (tid,)).fetchone()[0])

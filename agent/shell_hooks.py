@@ -117,7 +117,7 @@ def _cron_lineage_flag() -> str:
     try:
         from gateway.session_context import _UNSET, _VAR_MAP
         value = _VAR_MAP["HERMES_CRON_SESSION"].get()
-    except Exception:
+    except Exception:  # health: allow BLE001 -- fails CLOSED: an unclassifiable context reads as not-cron
         return ""
     return "1" if (value is not _UNSET and str(value or "").strip().lower() in _TRUTHY) else ""
 

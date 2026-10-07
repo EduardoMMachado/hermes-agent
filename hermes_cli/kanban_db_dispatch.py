@@ -1598,17 +1598,8 @@ def check_respawn_guard(
 
     # 3. Completed run within guard window. Exception: an explicit re-queue
     #    AFTER that success (done→ready drag, re-promotion, unblock, reclaim,
-    #    review rejection) is a deliberate "run it again" — otherwise a
-    #    manual done→ready would sit silently held until the window elapses.
-    #    ``changes_requested`` matters specifically for a card that entered
-    #    ``review`` by promotion (never ``request_review``, so its most
-    #    recent run legitimately closed ``completed``, not
-    #    ``review_requested``): #t_1e569887's degraded ``request_changes``
-    #    hands such a card back to the implementer, and without this kind in
-    #    the list the guard would read the ORIGINAL completion as "just
-    #    finished" and park the rework here for up to an hour, silently —
-    #    the same failure class the fix exists to remove (block was the only
-    #    exit before, and this would make the replacement exit non-functional).
+    #    review rejection of a card promoted into review) is a deliberate "run
+    #    it again" — otherwise it would sit silently held until the window elapses.
     cutoff = now - _RESPAWN_GUARD_SUCCESS_WINDOW
     recent_completed = conn.execute(
         "SELECT ended_at FROM task_runs "

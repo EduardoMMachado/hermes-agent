@@ -315,7 +315,7 @@ class GatewayKanbanWatchersMixin:
                             (_load_config() or {}).get("kanban", {}) or {}, _kb
                         )
                         dispatcher.settings = _fresh
-                    except Exception:
+                    except Exception:  # health: allow BLE001 -- a bad config read keeps the previous caps; the tick must still run
                         logger.debug("kanban dispatcher: live settings re-read failed; keeping previous", exc_info=True)
                     results = await _to_thread_process_service(dispatcher.tick_once)
                     any_spawned = _log_spawn_results(results)

@@ -11,6 +11,7 @@ none in the conversation itself.
 import pytest
 
 from agent import auxiliary_client as aux
+from agent.auxiliary_claude_code_token import supersede_stale_anthropic_oauth_key
 
 LIVE = "sk-ant-oat01-" + "L" * 80 + "AA"
 STALE = "sk-ant-oat01-" + "S" * 80 + "AA"
@@ -38,7 +39,7 @@ def disk(monkeypatch):
 
 def test_a_superseded_session_token_is_replaced_by_the_one_on_disk(disk):
     """The regression: the session hands over the token it was built with."""
-    assert aux._supersede_stale_anthropic_oauth_key(STALE, NATIVE) == LIVE
+    assert supersede_stale_anthropic_oauth_key(STALE, NATIVE) == LIVE
 
 
 def test_the_main_route_builds_the_aux_client_with_the_live_token(disk, monkeypatch):
@@ -55,29 +56,29 @@ def test_the_main_route_builds_the_aux_client_with_the_live_token(disk, monkeypa
 
 
 def test_the_current_token_is_kept(disk):
-    assert aux._supersede_stale_anthropic_oauth_key(LIVE, NATIVE) == LIVE
+    assert supersede_stale_anthropic_oauth_key(LIVE, NATIVE) == LIVE
 
 
 def test_a_token_the_pool_owns_is_kept(disk):
     """A second account added with `hermes auth add` is pinned on purpose: never swap it."""
     disk["pool"] = _Pool(owned={STALE})
-    assert aux._supersede_stale_anthropic_oauth_key(STALE, NATIVE) == STALE
+    assert supersede_stale_anthropic_oauth_key(STALE, NATIVE) == STALE
 
 
 def test_an_api_key_is_kept(disk):
     """Console API keys do not rotate; the disk token belongs to someone else's billing."""
     key = "sk-ant-api03-" + "K" * 80
-    assert aux._supersede_stale_anthropic_oauth_key(key, NATIVE) == key
+    assert supersede_stale_anthropic_oauth_key(key, NATIVE) == key
 
 
 def test_a_third_party_anthropic_endpoint_is_kept(disk):
     """Third-party anthropic_messages providers must never pick up the ~/.claude token (#1739)."""
-    assert aux._supersede_stale_anthropic_oauth_key(STALE, "https://api.minimax.io/anthropic") == STALE
+    assert supersede_stale_anthropic_oauth_key(STALE, "https://api.minimax.io/anthropic") == STALE
 
 
 def test_no_credential_on_disk_keeps_the_session_key(disk):
     disk["creds"] = None
-    assert aux._supersede_stale_anthropic_oauth_key(STALE, NATIVE) == STALE
+    assert supersede_stale_anthropic_oauth_key(STALE, NATIVE) == STALE
 
 
 def test_the_401_refresher_reports_a_newer_token_on_disk(disk):

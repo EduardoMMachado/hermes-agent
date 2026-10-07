@@ -741,7 +741,7 @@ def _print_key_banner(key, label: str, warn_missing: bool = False) -> None:
 def _init_anthropic_client(agent, api_key, base_url, _provider_timeout):
     """anthropic_messages: native Anthropic SDK (or AnthropicBedrock for Bedrock+Claude)."""
     from agent.anthropic_adapter import build_anthropic_client
-    from agent.anthropic_credentials import resolve_anthropic_token
+    from agent.anthropic_credentials import per_request_claude_code_credential, resolve_anthropic_token
     agent.client = None
     agent._client_kwargs = {}
     agent._anthropic_base_url = base_url
@@ -781,22 +781,7 @@ def _init_anthropic_client(agent, api_key, base_url, _provider_timeout):
     # cause 401/403 on their endpoints. See #1739.
     from agent.anthropic_credentials import anthropic_route_is_oauth
     agent._is_anthropic_oauth = anthropic_route_is_oauth(base_url, effective_key, provider=agent.provider)
-    # A subscription token lives ~8h and `claude` refreshes it on its own schedule. The SDK
-    # freezes auth_token at construction, so a long session kept presenting the token it
-    # started with and got 401 "OAuth access token has been revoked" — "stale", not "signed
-    # out". Same remedy as MiniMax above: a per-request provider. Only when the token came
-    # from the ambient Claude Code login (no explicit api_key): resolve_anthropic_token
-    # re-reads it per call, so a refresh by any process is picked up on the next request.
-    _client_credential = effective_key
-    if _is_native_anthropic and not api_key and agent._is_anthropic_oauth and isinstance(effective_key, str):
-        def _fresh_anthropic_oauth_token(_model=getattr(agent, "model", None), _fallback=effective_key):
-            try:
-                return resolve_anthropic_token(model=_model) or _fallback
-            except Exception:  # noqa: BLE001 — a read failure must not end the turn
-                return _fallback  # the last known token may still be valid; a 401 beats a crash in the hook
-
-        _client_credential = _fresh_anthropic_oauth_token
-    agent._anthropic_client = build_anthropic_client(_client_credential, base_url, timeout=_provider_timeout)
+    agent._anthropic_client = build_anthropic_client(per_request_claude_code_credential(agent, api_key, effective_key, _is_native_anthropic), base_url, timeout=_provider_timeout)  # per-request bearer: follows a `claude` refresh
     if not agent.quiet_mode:
         print(f"🤖 AI Agent initialized with model: {agent.model} (Anthropic native)")
         _print_key_banner(effective_key, "token")

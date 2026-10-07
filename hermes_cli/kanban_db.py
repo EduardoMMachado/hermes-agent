@@ -1737,17 +1737,7 @@ def link_tasks(
         _link(conn, parent_id, child_id)
         # If child was ready but parent is not yet terminal, demote child to todo
         # (archived counts as terminal, matching _parents_satisfied/recompute_ready).
-        # "Terminal" is the SAME predicate the claim uses (`_parent_terminal_sql`):
-        # on a `"parent_gate": "merged"` board a `done` parent whose PR has not
-        # merged still gates. Testing `status in (done, archived)` here left the
-        # child `ready` under an unmerged parent — the claim refused it, but the
-        # board and the CLI said "ready" (measured 2026-10-02: t_b7354264 under
-        # B45, done with PR #182 still open).
-        parent_terminal = conn.execute(
-            f"SELECT 1 FROM tasks p WHERE p.id = ? AND ({_parent_terminal_sql(conn)})",
-            (parent_id,),
-        ).fetchone() is not None
-        if not parent_terminal:
+        if not _parent_is_terminal(conn, parent_id):  # the claim's predicate, not status alone
             cur = conn.execute(
                 "UPDATE tasks SET status = 'todo' WHERE id = ? AND status = 'ready'",
                 (child_id,),
@@ -2273,14 +2263,7 @@ def recompute_ready(conn: sqlite3.Connection, failure_limit: int = None) -> int:
 # --- Claim / complete / block ---
 
 def _parents_satisfied(conn: sqlite3.Connection, task_id: str) -> bool:
-    """Return whether every direct parent is terminal for dependency gating.
-
-    Terminal = ``archived``, or ``done``. On a board that opts in with
-    ``"parent_gate": "merged"`` in its ``board.json``, a ``done`` parent whose
-    completion contract is a pull request also needs a ``merged`` event: an
-    approved PR is not yet on the base branch, and a child cut from that branch
-    would build on code that is not there (see :func:`_parent_gate_is_merged`).
-    """
+    """Return whether every direct parent is terminal for dependency gating (see ``kanban_db_parent_gate``)."""
     return conn.execute(
         "SELECT 1 FROM task_links l "
         "JOIN tasks p ON p.id = l.parent_id "
@@ -2289,80 +2272,10 @@ def _parents_satisfied(conn: sqlite3.Connection, task_id: str) -> bool:
     ).fetchone() is None
 
 
-# A parent whose completion contract is a PR URL (``prepare_acceptance`` binds
-# the published PR there) is only merged once someone records a ``merged``
-# event on it — the release tooling that performs the merge does.
-_PR_CONTRACT_LIKE = "https://github.com/%/pull/%"
-_parent_gate_cache: dict[str, tuple[float, bool]] = {}
-
-
-def _parent_gate_is_merged(conn: sqlite3.Connection) -> bool:
-    """True when *conn*'s board opts into ``"parent_gate": "merged"``.
-
-    Read from the ``board.json`` beside the board's database file, cached by
-    mtime. Any doubt (in-memory DB, missing or malformed file, other value) is
-    the default gate — the behaviour every other board keeps.
-    """
-    from hermes_cli.kanban_db_connect import _main_db_file
-
-    db_file = _main_db_file(conn)
-    if not db_file:
-        return False
-    meta = Path(db_file).with_name("board.json")
-    try:
-        mtime = meta.stat().st_mtime
-    except OSError:
-        return False
-    cached = _parent_gate_cache.get(str(meta))
-    if cached is not None and cached[0] == mtime:
-        return cached[1]
-    try:
-        merged = json.loads(meta.read_text(encoding="utf-8")).get("parent_gate") == "merged"
-    except (OSError, ValueError, AttributeError):
-        merged = False
-    _parent_gate_cache[str(meta)] = (mtime, merged)
-    return merged
-
-
-def _parent_terminal_sql(conn: sqlite3.Connection) -> str:
-    """SQL predicate over parent row ``p``: the parent no longer gates its children."""
-    if not _parent_gate_is_merged(conn):
-        return "p.status IN ('done', 'archived')"
-    return (
-        "p.status = 'archived' OR (p.status = 'done' AND ("
-        "p.completion_contract IS NULL "
-        f"OR p.completion_contract NOT LIKE '{_PR_CONTRACT_LIKE}' "
-        "OR EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = p.id AND e.kind = 'merged')))"
-    )
-
-
-def record_merged(conn: sqlite3.Connection, task_id: str, payload: Optional[dict] = None) -> bool:
-    """Record that ``task_id``'s PR landed on the base branch, then re-promote.
-
-    Idempotent: a second call for the same task is a no-op returning False.
-    Only meaningful on a ``"parent_gate": "merged"`` board, harmless elsewhere.
-    """
-    with write_txn(conn):
-        if conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone() is None:
-            return False
-        if conn.execute(
-            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'merged' LIMIT 1", (task_id,),
-        ).fetchone():
-            return False
-        _append_event(conn, task_id, "merged", payload)
-    recompute_ready(conn)
-    return True
-
-
 def unsatisfied_parents(conn: sqlite3.Connection, task_id: str) -> list[tuple[str, str]]:
     """``(parent_id, status)`` for every direct parent :func:`_parents_satisfied`
-    still counts as open, in id order, so a refusal or a board view can name the
-    blockers instead of the caller guessing. Read-only.
-
-    Uses the SAME predicate as the claim (:func:`_parent_terminal_sql`): on a
-    ``"parent_gate": "merged"`` board a ``done`` parent whose PR has not landed
-    still blocks, and must be named here — otherwise a held child reports no
-    blockers at all."""
+    still counts as open (the claim's own predicate), in id order, so a refusal or
+    a board view can name the blockers instead of the caller guessing. Read-only."""
     rows = conn.execute(
         "SELECT p.id, p.status FROM task_links l "
         "JOIN tasks p ON p.id = l.parent_id "
@@ -3653,68 +3566,13 @@ def _nonblank_str(value: Any) -> Optional[str]:
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _implementer_from_run_history(
-    conn: sqlite3.Connection, task_id: str, *,
-    exclude_run_id: Optional[int], exclude_profile: Optional[str],
-) -> Optional[str]:
-    """Degraded implementer provenance for a card that reached ``review``
-    without ever calling ``request_review`` — ``recompute_ready``'s
-    ``promoted {"status": "review"}`` and a reconciler's raw ``UPDATE`` both
-    skip it (#t_1e569887). Falls back to the profile of the latest ENDED run
-    that is not the reviewer's own active run and whose ``metadata`` carries
-    no ``review_outcome`` (the key the ``sdlc-review`` skill writes on
-    approve) — that excludes a prior reviewer's approval run and lands on the
-    implementer's own closing run. ``None`` when no such run exists; the
-    caller then leaves ``assignee`` untouched, the same degradation
-    :func:`reopen_review_task` already applies when its own event has no
-    implementer.
-
-    ``review_outcome`` alone is not enough: it is written only on the
-    ``sdlc-review`` skill's APPROVAL path. A reviewer run that instead ends
-    ``blocked``/``reclaimed``/``crashed``/``timed_out`` closes with
-    ``metadata=NULL`` and, being the most recently ENDED run, would outrank
-    the implementer's own closing run — electing the reviewer as the card's
-    next assignee via the very rework path meant to route it away from them
-    (measured on a synthetic board: the ``ready`` lane then dispatches
-    ``profile=<reviewer>``, exactly the mix-up the review-lane guard family
-    exists to prevent). ``exclude_profile`` — the caller's already-resolved
-    reviewer — is the second, independent filter that closes this: any row
-    whose ``profile`` matches it is skipped regardless of ``metadata``.
-    """
-    rows = conn.execute(
-        "SELECT id, profile, metadata FROM task_runs "
-        "WHERE task_id = ? AND ended_at IS NOT NULL "
-        "ORDER BY id DESC", (task_id,),
-    ).fetchall()
-    for row in rows:
-        if exclude_run_id is not None and row["id"] == exclude_run_id:
-            continue
-        profile = _nonblank_str(_row_get(row, "profile"))
-        if profile is not None and exclude_profile is not None:
-            if _canonical_assignee(profile) == exclude_profile:
-                continue
-        if "review_outcome" in _json_dict(_row_get(row, "metadata")):
-            continue
-        if profile is not None:
-            return profile
-    return None
-
-
 def request_changes(
     conn: sqlite3.Connection, task_id: str, *, reason: str, expected_run_id: Optional[int] = None,
 ) -> tuple[bool, Optional[str]]:
     """Close an active reviewer run (claimed from ``review``) and hand the task
     back to the implementer from the latest ``review_requested`` event, parent
-    gating reapplied. Returns ``(ok, implementer | reason)``.
-
-    When no ``review_requested`` event exists at all — the card entered
-    ``review`` by promotion or a raw reconciler ``UPDATE`` instead of
-    ``request_review`` — this degrades instead of refusing: see
-    :func:`_implementer_from_run_history`. A ``review_requested`` event that
-    DOES exist but carries no valid implementer (malformed/legacy payload)
-    still fails closed — that is a corrupt handoff, not an absent one, and
-    silently guessing there would paper over data loss.
-    """
+    gating reapplied. Returns ``(ok, implementer | reason)``. No such event degrades to
+    ``implementer_from_run_history``; one with no valid implementer still fails closed."""
     reason = str(redact_review_value(reason or "")).strip()
     if not reason:
         return False, "reason is required"
@@ -3737,12 +3595,9 @@ def request_changes(
             return False, "active run was not claimed from review"
 
         reviewer = _canonical_assignee(_nonblank_str(task_row["assignee"]))
-
         requested_event = _latest_event(conn, task_id, "review_requested")
         if requested_event is None:
-            implementer = _implementer_from_run_history(
-                conn, task_id, exclude_run_id=current_run_id, exclude_profile=reviewer,
-            )
+            implementer = _implementer_from_run_history(conn, task_id, exclude_run_id=current_run_id, exclude_profile=reviewer)
             provenance = "inferred_from_run_history" if implementer else None
         else:
             implementer = _nonblank_str(_json_dict(requested_event["payload"]).get("implementer"))
@@ -3770,21 +3625,10 @@ def request_changes(
         run_id = _end_run(
             conn, task_id, outcome="changes_requested", status=new_status, summary=reason,
         )
-        payload: dict[str, Any] = {
-            "reason": reason,
-            "implementer": implementer,
-            "reviewer": reviewer,
-            "status": new_status,
-        }
+        payload: dict[str, Any] = {"reason": reason, "implementer": implementer, "reviewer": reviewer, "status": new_status}
         if provenance != "review_requested":
             payload["implementer_provenance"] = provenance
-        _append_event(
-            conn,
-            task_id,
-            "changes_requested",
-            payload,
-            run_id=run_id,
-        )
+        _append_event(conn, task_id, "changes_requested", payload, run_id=run_id)
     return True, implementer
 
 
@@ -4716,6 +4560,8 @@ from hermes_cli.kanban_db_workspace import (  # noqa: E402
     _managed_scratch_path_info,
     _scratch_workspace,
 )
+from hermes_cli.kanban_db_parent_gate import _parent_gate_cache, _parent_is_terminal, _parent_terminal_sql, record_merged  # noqa: E402,F401
+from hermes_cli.kanban_db_parent_gate import implementer_from_run_history as _implementer_from_run_history  # noqa: E402
 from hermes_cli.kanban_db_dispatch import (  # noqa: E402
     DEFAULT_FAILURE_LIMIT,
     DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS,

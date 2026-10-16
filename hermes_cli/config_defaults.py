@@ -1,3 +1,4 @@
+# health: allow FILE_LINES -- fork-only (EduardoMMachado): agent.oneshot_in_process wiring; see hermes_cli/oneshot_in_process.py
 """Default configuration data for Hermes Agent: DEFAULT_CONFIG and OPTIONAL_ENV_VARS.
 
 Pure-data leaf module — must not import from hermes_cli.config. Comments are the user-facing
@@ -73,6 +74,9 @@ DEFAULT_CONFIG = {
         "storage": "hermes-home",
     },
     "agent": {
+        # Fork-only: run `hermes chat --oneshot/-Q` with a query in the calling process instead of
+        # handing the turn to the gateway, so per-process env and HERMES_MANAGED_DIR reach the turn.
+        "oneshot_in_process": False,
         # Turn cap. null = unlimited (default; caps caused silent mid-task truncation). Positive int
         # caps; "none"/"unlimited"/"inf"/0/-1 also mean unlimited (resolve_turn_limit).
         "max_turns": None,

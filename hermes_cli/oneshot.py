@@ -244,6 +244,7 @@ def run_oneshot(
     usage_file: Optional[str] = None,
     resume: Optional[str] = None,
     reasoning: object = None,
+    max_iterations: Optional[int] = None,
 ) -> int:
     """Execute a single prompt and print only the final content block.
 
@@ -304,6 +305,7 @@ def run_oneshot(
                 resume=resume,
                 reasoning=reasoning,
                 ledger=bool(usage_file),
+                max_iterations=max_iterations,
             )
         except BaseException as exc:
             # Capture anything escaping the agent (OSError from prompt_toolkit on a non-TTY pipe,
@@ -510,6 +512,7 @@ def _run_agent(
     resume: Optional[str] = None,
     reasoning: object = None,
     ledger: bool = False,
+    max_iterations: Optional[int] = None,
 ) -> tuple[str, dict]:
     """Build an AIAgent exactly like a normal CLI chat turn, run one conversation, and return
     ``(final_response, run_result)``. Imports are local to keep CLI startup cheap. *ledger* (set when
@@ -596,6 +599,7 @@ def _run_agent(
             # HERMES_INTERACTIVE (never set), hook approval via HERMES_ACCEPT_HOOKS=1, dangerous
             # commands via HERMES_YOLO_MODE=1, skill secret capture degrades gracefully.
             clarify_callback=_oneshot_clarify_callback,
+            **({"max_iterations": max_iterations} if max_iterations else {}),
         )
         # Belt-and-braces: no streaming display callbacks may bypass our stdout capture.
         agent.suppress_status_output = True

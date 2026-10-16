@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# health: allow FILE_LINES -- fork-only (EduardoMMachado): agent.oneshot_in_process wiring; see hermes_cli/oneshot_in_process.py
 """Hermes CLI - Main entry point.
 
 Usage:
@@ -144,6 +145,7 @@ def _run_and_exit_oneshot(
     usage_file: object = None,
     resume: object = None,
     reasoning: object = None,
+    max_iterations: object = None,
 ) -> None:
     try:
         from hermes_cli.oneshot import run_oneshot
@@ -157,6 +159,7 @@ def _run_and_exit_oneshot(
             usage_file=usage_file,
             resume=resume,
             reasoning=reasoning,
+            max_iterations=max_iterations,
         )
     except KeyboardInterrupt:
         rc = 130
@@ -1761,6 +1764,9 @@ def cmd_chat(args):
 
     from hermes_cli.main_query_file import _read_query_file
     _read_query_file(args)
+    from hermes_cli.oneshot_in_process import run_and_exit, wants_in_process
+    if wants_in_process(args):
+        run_and_exit(args)
 
     safe_mode = getattr(args, "safe_mode", False)
     kwargs = {
@@ -2896,8 +2902,10 @@ def _chat_runs_at_gateway(args) -> bool:
     """Every ``hermes`` / ``hermes chat`` turn (classic view, ``-q``, ``-z``, TUI) executes in the
     gateway, which discovers and owns MCP servers itself. Discovery in this client only spawns a
     second copy of every server and holds the cross-process discovery lock the cold-starting gateway
-    then waits on (measured 2.0 s with one stdio server) for tools nothing here ever calls."""
-    return args.command in {None, "chat"}
+    then waits on (measured 2.0 s with one stdio server) for tools nothing here ever calls.
+    Fork: an in-process oneshot (``agent.oneshot_in_process``) runs the turn here, so it discovers."""
+    from hermes_cli.oneshot_in_process import wants_in_process
+    return args.command in {None, "chat"} and not wants_in_process(args)
 
 
 def _prepare_agent_startup(args) -> None:

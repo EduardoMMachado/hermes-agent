@@ -1629,8 +1629,7 @@ def check_respawn_guard(
     #    it again" — otherwise it would sit silently held until the window elapses.
     success = max((t for t, _ in _rows_since(
         conn, "task_runs", task_id, now - _RESPAWN_GUARD_SUCCESS_WINDOW, "AND outcome = 'completed'")), default=None)
-    if success is not None and not any(_rows_since(
-            conn, "task_events", task_id, success,
+    if success is not None and not any(_rows_since(conn, "task_events", task_id, success,
             "AND kind IN ('status', 'promoted', 'unblocked', 'reclaimed', 'changes_requested')")):
         return "recent_success"
 

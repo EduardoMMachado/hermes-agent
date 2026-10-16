@@ -4232,7 +4232,7 @@ from hermes_cli.kanban_db_workspace import (
     _managed_scratch_path_info,
     _scratch_workspace,
 )
-from hermes_cli.kanban_db_parent_gate import _parent_gate_cache, _parent_is_terminal, _parent_terminal_sql, record_merged  # noqa: F401
+from hermes_cli.kanban_db_parent_gate import _parent_gate_cache, _parent_is_terminal, _parent_terminal_sql, record_merged
 from hermes_cli.kanban_db_parent_gate import implementer_from_run_history as _implementer_from_run_history
 from hermes_cli.kanban_db_dispatch import (
     DEFAULT_FAILURE_LIMIT,

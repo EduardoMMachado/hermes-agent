@@ -52,7 +52,7 @@ def test_gateway_dispatcher_rereads_max_in_progress_every_tick(monkeypatch):
     monkeypatch.setattr(kw, "_to_thread_process_service", _direct)
     monkeypatch.setattr(kw, "_kanban_dispatch_allowed", lambda: True)
     monkeypatch.setattr(kw, "_resolve_auto_decompose_settings", lambda load_config: (False, 0))
-    monkeypatch.setattr(kbd, "reap_worker_zombies", lambda: [])
+    monkeypatch.setattr(kbd, "reap_worker_zombies", list)
     monkeypatch.setattr(kw.asyncio, "sleep", _sleep)
 
     asyncio.run(asyncio.wait_for(runner._kanban_dispatcher_watcher(), timeout=5.0))

@@ -3854,7 +3854,7 @@ def _refresh_vertex_credentials() -> bool:
     return bool(isinstance(token, str) and token.strip() and isinstance(base_url, str) and base_url.strip())
 
 
-from agent.auxiliary_claude_code_token import refresh_anthropic_credentials as _refresh_anthropic_credentials  # noqa: E402
+from agent.auxiliary_claude_code_token import refresh_anthropic_credentials as _refresh_anthropic_credentials
 
 
 # Each refresher returns True when a usable credential exists; the caller then evicts cached clients.

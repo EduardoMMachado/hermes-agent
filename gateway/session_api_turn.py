@@ -303,16 +303,17 @@ def owns_api_run(adapter, run_id, owner_scope):
 
 
 def recover_api_turns(adapter):
-    """Recover committed work only after the real API adapter is published."""
-    from gateway.session_authorities import all_authorities, owner_scope
-    for authority in all_authorities(adapter.gateway_runner):
+    """Recover committed work only after the real API adapter is published. A parked profile's
+    retained (retiring) authority is not served: its store is never read here."""
+    from gateway.session_authorities import owner_scope, serving_authorities
+    for authority in serving_authorities(adapter.gateway_runner):
         # Startup is unscoped (the launch profile's home): each profile's media root, config and
         # API bindings must pair with its own state.db, never the launch profile's.
         with owner_scope(authority):
-            _recover_api_turns(adapter, authority)
+            recover_authority_api_turns(adapter, authority)
 
 
-def _recover_api_turns(adapter, authority):
+def recover_authority_api_turns(adapter, authority):
     from hermes_state_runtime import list_session_admissions
     from gateway.session_ingress_media import collect_unheld_api_images
     import logging

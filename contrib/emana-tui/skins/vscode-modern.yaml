@@ -1,0 +1,69 @@
+# VS Code "Dark Modern" for Hermes (CLI, TUI and Desktop)
+# Hierarchy: headings/links in link blue, tools in teal (Dark+ "type" colour),
+# text #cccccc, secondary #9d9d9d, reasoning strongly receded.
+name: vscode-modern
+description: VS Code Dark Modern — cinza grafite com azul VS Code
+
+colors:
+  background: "#1f1f1f"
+
+  # Headings, links, inline code — VS Code textLink.foreground
+  ui_accent: "#4daafc"
+  banner_accent: "#4daafc"
+  # Tool markers (●) — Dark+ teal, to set them apart from headings
+  ui_tool: "#4ec9b0"
+  # Reasoning: strongly receded, like ghost comments
+  ui_thinking: "#6e7681"
+
+  # Primary: active bar, card borders, highlight
+  banner_title: "#ffffff"
+  ui_primary: "#3794ff"
+  banner_text: "#cccccc"
+  ui_text: "#cccccc"
+  ui_label: "#e7e7e7"
+  banner_dim: "#9d9d9d"
+  banner_border: "#2b2b2b"
+  ui_border: "#2b2b2b"
+
+  ui_ok: "#89d185"
+  ui_warn: "#cca700"
+  ui_error: "#f14c4c"
+
+  prompt: "#4daafc"
+  shell_dollar: "#4ec9b0"
+  input_rule: "#0078d4"
+  response_border: "#2b2b2b"
+  selection_bg: "#264f78"
+
+  status_bar_bg: "#181818"
+  status_bar_text: "#9d9d9d"
+  status_bar_strong: "#e7e7e7"
+  status_bar_dim: "#6e7681"
+  status_bar_good: "#89d185"
+  status_bar_warn: "#cca700"
+  status_bar_bad: "#f14c4c"
+  status_bar_critical: "#f14c4c"
+  session_label: "#9d9d9d"
+  session_border: "#2b2b2b"
+
+  diff_added: "#2ea043"
+  diff_removed: "#f85149"
+  diff_added_word: "#56d364"
+  diff_removed_word: "#ffa198"
+
+  syntax_string: "#ce9178"
+  syntax_number: "#b5cea8"
+  syntax_keyword: "#569cd6"
+  syntax_comment: "#6a9955"
+
+  completion_menu_bg: "#202020"
+  completion_menu_current_bg: "#04395e"
+  completion_menu_meta_bg: "#202020"
+  completion_menu_meta_current_bg: "#04395e"
+
+branding:
+  agent_name: Hermes
+  prompt_symbol: "›"
+  help_header: "Comandos"
+
+tool_prefix: "│"

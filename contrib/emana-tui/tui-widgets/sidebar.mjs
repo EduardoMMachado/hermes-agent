@@ -84,7 +84,14 @@ export default function register(sdk) {
   }
 
   function Explorer({ t, height }) {
+    const scrollRef = React.useRef(null)
     const { sessions, crons } = usePoll(React)
+    const hasSessions = Boolean(sessions)
+    React.useEffect(() => {
+      // First paint may grow from a loading row to the full list: start at the
+      // explorer header, then preserve the user's position on later polls.
+      if (hasSessions) scrollRef.current?.scrollTo?.(0)
+    }, [hasSessions])
     const { sid } = sdk.useSessionInfo()
     // Without the fork's sdk patch (older sdk) the footer just shows the hints.
     const activity = sdk.useLiveActivity ? sdk.useLiveActivity() : { agents: [], processes: [], bgTasks: [], running: 0 }
@@ -124,15 +131,15 @@ export default function register(sdk) {
     else if (!crons.rows.length)
       cronRows = [muted('  Nenhuma tarefa agendada', 'n'), h(Text, { key: 'h', color: t.color.accent }, '  + /cron add para criar')]
     else
-      // Live activity grows the footer: cron jobs give up space.
-      cronRows = crons.rows.slice(0, busyRows ? 3 : 6).map((j, i) => h(CronRow, { key: `${j._profile}:${j.id || i}`, j, t }))
+      cronRows = crons.rows.map((j, i) => h(CronRow, { key: `${j._profile}:${j.id || i}`, j, t }))
 
     return h(
       Box,
-      { flexDirection: 'column', width: INNER + 2, height, paddingX: 1, justifyContent: 'space-between' },
+      { flexDirection: 'column', width: INNER + 2, height, paddingX: 1 },
       h(
-        Box,
-        { flexDirection: 'column' },
+        sdk.ScrollBox || Box,
+        { flexDirection: 'column', flexGrow: 1, flexShrink: 1, minHeight: 0, ref: scrollRef, stickyScroll: false },
+        h(Box, { flexDirection: 'column', flexShrink: 0 },
         h(
           Box,
           { flexDirection: 'row', marginBottom: 1 },
@@ -142,11 +149,17 @@ export default function register(sdk) {
         pinnedRows.length ? h(Section, { t, title: 'FIXADAS', count: pinnedRows.length }, ...pinnedRows) : null,
         h(Section, { t, title: 'SESSÕES', count: sessions?.rows ? Math.min(sessions.rows.length, recentLimit) : undefined }, ...sessionRows),
         h(Section, { t, title: 'AGENDADOS', count: crons.rows?.length }, ...cronRows)
+        )
+      ),
+      h(Box, { flexDirection: 'row', flexShrink: 0 },
+        h(Box, { onClick: () => scrollRef.current?.scrollBy?.(-5) }, h(Text, { color: t.color.accent }, ' ↑ ')),
+        h(Text, { color: t.color.muted }, 'rolar lista'),
+        h(Box, { onClick: () => scrollRef.current?.scrollBy?.(5) }, h(Text, { color: t.color.accent }, ' ↓ '))
       ),
       // Footer: live activity (when any) ABOVE the command hints, which always stay.
       h(
         Box,
-        { flexDirection: 'column' },
+        { flexDirection: 'column', flexShrink: 0 },
         busyRows ? h(Activity, { t, activity }) : null,
         h(Text, { color: t.color.border }, '─'.repeat(INNER)),
         ...HINTS.map(([cmd, label]) =>

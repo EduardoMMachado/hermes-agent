@@ -4,7 +4,7 @@ import { homedir } from 'os'
 import { dirname, join } from 'path'
 import { pathToFileURL } from 'url'
 
-import { Box, Text } from '@hermes/ink'
+import { Box, ScrollBox, Text } from '@hermes/ink'
 import * as React from 'react'
 
 import { Accordion } from '../components/accordion.js'
@@ -41,6 +41,7 @@ export const widgetSdk = {
   GridAreas,
   Overlay,
   React,
+  ScrollBox,
   Shimmer,
   ShimmerRows,
   Text,

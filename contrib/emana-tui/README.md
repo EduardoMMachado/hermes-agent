@@ -34,6 +34,11 @@ timestamps are retained when reopening a session; live blocks use their first
 observed time before metadata arrives. Missing historical timestamps are explicit,
 never replaced with the current time. The installer enables `display.timestamps`.
 
+Background completions and internal notifications keep their system-event origin,
+both live and after reopening history. Queued inputs use the owner's display
+metadata matched by admission ID, never a guess based on their text. These events
+do not replace the pinned human request; quoting a notification remains human input.
+
 Each weekly account quota includes the provider's renewal date, time and local
 UTC offset. Unknown reset timestamps are displayed as unavailable, not guessed.
 

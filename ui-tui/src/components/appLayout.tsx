@@ -25,7 +25,7 @@ import {
 import { PerfPane } from '../lib/perfPane.js'
 import { composerPromptText } from '../lib/prompt.js'
 import { sessionLabel } from '../lib/sessionLabel.js'
-import { ActiveWidgetSlot, AmbientDock, AmbientRail, useAmbientRailWidth } from '../sdk/host.js'
+import { ActiveWidgetSlot, AmbientDock, AmbientRail, HeaderDock, useAmbientRailWidth } from '../sdk/host.js'
 
 import { AgentsOverlay } from './agentsOverlay.js'
 import { LiveAgentsPanel } from './agentsPanel.js'
@@ -540,7 +540,7 @@ const StatusRulePane = memo(function StatusRulePane({
   }
 
   return (
-    <Box marginTop={at === 'top' ? 1 : 0}>
+    <Box backgroundColor={ui.theme.color.statusBg} marginTop={at === 'top' ? 1 : 0}>
       <StatusRule
         battery={ui.battery ? ui.batteryStatus : null}
         bgCount={ui.bgTasks.size}
@@ -594,11 +594,24 @@ export const AppLayout = memo(function AppLayout({
   const Shell = INLINE_MODE ? Fragment : AlternateScreen
   const shellProps = INLINE_MODE ? {} : { mouseTracking }
 
+  // Side rails span the full height (transcript AND composer sit in the
+  // centre column, editor-style), so the composer gets the narrowed width.
+  const showRails = !overlay.agents && !overlay.journey
+  const railCols = useAmbientRailWidth('left') + useAmbientRailWidth('right')
+
+  const centreComposer = useMemo(
+    () => (showRails && railCols ? { ...composer, cols: Math.max(28, composer.cols - railCols) } : composer),
+    [composer, railCols, showRails]
+  )
+
   return (
     <Shell {...shellProps}>
       <Box flexDirection="column" flexGrow={1} position={NATIVE_MODE ? undefined : 'relative'}>
+        {!overlay.agents && !overlay.journey && <HeaderDock />}
         <Box flexDirection="row" flexGrow={1}>
-          {!overlay.agents && !overlay.journey && <AmbientRail side="left" />}
+          {showRails && <AmbientRail side="left" />}
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+          <Box flexDirection="row" flexGrow={1} flexShrink={1}>
           {overlay.agents ? (
             <PerfPane id="agents">
               <AgentsOverlayPane />
@@ -618,14 +631,13 @@ export const AppLayout = memo(function AppLayout({
               />
             </PerfPane>
           )}
-          {!overlay.agents && !overlay.journey && <AmbientRail side="right" />}
-        </Box>
+          </Box>
 
-        {!overlay.agents && !overlay.journey && (
+        {showRails && (
           <>
             <PerfPane id="prompt">
               <PromptZone
-                cols={composer.cols}
+                cols={centreComposer.cols}
                 onApprovalChoice={actions.answerApproval}
                 onClarifyCancel={actions.cancelClarify}
                 onClarifyQuestionAnswer={actions.answerClarifyQuestion}
@@ -640,7 +652,7 @@ export const AppLayout = memo(function AppLayout({
             <PerfPane id="composer">
               <ComposerPane
                 actions={actions}
-                composer={composer}
+                composer={centreComposer}
                 cursorSnapshotRef={cursorSnapshotRef}
                 nativeMode={NATIVE_MODE}
                 status={status}
@@ -654,6 +666,9 @@ export const AppLayout = memo(function AppLayout({
             )}
           </>
         )}
+          </Box>
+          {showRails && <AmbientRail side="right" />}
+        </Box>
 
         {!overlay.agents && !NATIVE_MODE && <PetPane />}
       </Box>

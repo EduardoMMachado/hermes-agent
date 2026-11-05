@@ -213,6 +213,26 @@ export function ActiveWidgetSlot(): ReactNode {
   return overlay.widget ? renderApp(overlay.widget, ctx) : null
 }
 
+/** Full-width band at the very top of the screen (zone `header`): stacked
+ *  rows, left-aligned, no padding — the widget owns the whole width. */
+export function HeaderDock(): ReactNode {
+  const overlay = useStore($overlayState)
+  const ctx = useRenderCtx()
+  const docked = overlay.ambient.filter(active => zoneOf(active) === 'header')
+
+  if (!docked.length) {
+    return null
+  }
+
+  return (
+    <Box flexDirection="column" flexShrink={0} width="100%">
+      {docked.map(active => (
+        <Box key={active.appId}>{renderApp(active, ctx)}</Box>
+      ))}
+    </Box>
+  )
+}
+
 /** An in-FLOW dock row: reserves real rows in the chrome (never covers
  *  content), right-aligned cards. `dock-top` renders under the top status
  *  bar, `dock-bottom` above the bottom one. */

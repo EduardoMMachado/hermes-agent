@@ -70,7 +70,16 @@ export interface WidgetApp<S = unknown> {
  * Users phrase placement loosely ("top right", "pin it above the status
  * bar") — map words to the nearest zone; corners mean floats.
  */
-export type AmbientZone = 'bottom-left' | 'bottom-right' | 'dock-bottom' | 'dock-top' | 'top-left' | 'top-right'
+export type AmbientZone =
+  | 'bottom-left'
+  | 'bottom-right'
+  | 'dock-bottom'
+  | 'dock-top'
+  /** Full-width band at the very top of the screen, above transcript and
+   *  rails — editor-style tab bars / breadcrumbs. Cards get the full width. */
+  | 'header'
+  | 'top-left'
+  | 'top-right'
 
 /** The host's serializable record of the active app. */
 export interface ActiveWidget {

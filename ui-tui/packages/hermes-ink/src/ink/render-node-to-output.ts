@@ -1117,6 +1117,16 @@ function renderNodeToOutput(
               return null
             }
 
+            // output.shift() and DECSTBM both move WHOLE rows. A ScrollBox
+            // that doesn't span the full width (side rail beside the
+            // transcript) would drag the neighbour's cells along with it —
+            // the rail scrolls away / goes blank. Take the full path instead.
+            // (A few columns of padding/scrollbar beside the box are fine —
+            // they repaint every scroll anyway — so only bail for real rails.)
+            if (x1 > 4 || outputWidth - x2 > 4) {
+              return null
+            }
+
             return { bottom, top, width: x2 - x1, x: x1 }
           })()
 

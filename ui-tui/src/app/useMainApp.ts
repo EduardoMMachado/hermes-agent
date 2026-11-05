@@ -43,6 +43,7 @@ import { asRpcResult, rpcErrorMessage } from '../lib/rpc.js'
 import { terminalParityHints } from '../lib/terminalParity.js'
 import { formatAbandonedClarify, sameToolTrailGroup, toolTrailLabel } from '../lib/text.js'
 import { estimatedMsgHeight, messageHeightKey } from '../lib/virtualHeights.js'
+import { setWidgetSlashRunner } from '../sdk/actions.js'
 import { onUserWidgets } from '../sdk/userWidgets.js'
 import type { Msg, PanelSection } from '../types.js'
 
@@ -1232,6 +1233,13 @@ export function useMainApp(gw: GatewayClient) {
   )
 
   slashRef.current = slash
+
+  // Widgets (e.g. a clickable tab bar) dispatch through the live handler.
+  useEffect(() => {
+    setWidgetSlashRunner(cmd => slashRef.current(cmd))
+
+    return () => setWidgetSlashRunner(null)
+  }, [])
 
   // Answer a server→client request by id; the card closes either way (an
   // expired request has nothing left to answer).

@@ -72,12 +72,14 @@ export const toTranscriptMessages = (rows: unknown): Msg[] => {
       continue
     }
 
-    if (display_kind === 'async_delegation_complete' || display_kind === 'process_complete') {
+    if (display_kind === 'async_delegation_complete' || display_kind === 'process_complete' || display_kind === 'internal_notification') {
       const meta = (row as TranscriptRow).display_metadata
       const count = meta && typeof meta.task_count === 'number' ? meta.task_count : undefined
 
       const label =
-        display_kind === 'process_complete'
+        display_kind === 'internal_notification'
+          ? text
+          : display_kind === 'process_complete'
           ? t('libText.messages.backgroundProcessFinished')
           : count === undefined
             ? t('libText.messages.backgroundAgentWorkFinished')

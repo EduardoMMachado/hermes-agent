@@ -1,4 +1,7 @@
-import type { SessionInfo } from '../types.js'
+import type { GatewayEvent } from '@hermes/shared/gateway-events'
+
+import { toTranscriptMessages } from '../domain/messages.js'
+import type { Msg, SessionInfo } from '../types.js'
 
 export type PendingRow = NonNullable<SessionInfo['pending_submissions']>[number]
 
@@ -21,3 +24,15 @@ export function newlyStartedRows(previous: PendingRow[] | undefined, incoming: P
 }
 
 export const isServerQueued = (row: PendingRow) => row.status === 'queued' || row.status === 'unknown'
+
+export function startedBubbleMessages(row: PendingRow, start?: GatewayEvent<'message.start'>): Msg[] {
+  // Transport role does not establish human authorship. Only the owner's
+  // display metadata for this exact admission can classify an automated turn.
+  const display = start?.admission_id === row.admission_id ? start.payload : undefined
+
+  return toTranscriptMessages([{
+    role: 'user', text: row.user,
+    display_kind: display?.notification_category === 'diagnostic' ? 'hidden' : display?.display_kind,
+    display_metadata: { display_text: display?.display_text }
+  }])
+}

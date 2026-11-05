@@ -47,12 +47,37 @@ describe('stickyPromptFromViewport', () => {
     expect(stickyPromptFromViewport(messages, [0, 2, 10], 2, 8, false)).toBe('current prompt')
   })
 
-  it('hides the sticky prompt at the bottom', () => {
+  it('keeps the last request visible while auto-following a long answer', () => {
     const messages = [
       { role: 'user' as const, text: 'current prompt' },
       { role: 'assistant' as const, text: 'current answer' }
     ]
 
-    expect(stickyPromptFromViewport(messages, [0, 2, 10], 8, 10, true)).toBe('')
+    expect(stickyPromptFromViewport(messages, [0, 2, 10], 8, 10, true)).toBe('current prompt')
+  })
+
+  it('does not duplicate a partially visible original request', () => {
+    const messages = [{ role: 'user' as const, text: 'long request' }, { role: 'assistant' as const, text: 'answer' }]
+    expect(stickyPromptFromViewport(messages, [0, 5, 20], 4, 10, false)).toBe('')
+  })
+
+  it('keeps the latest request rather than replacing it with an older visible turn', () => {
+    const messages = [
+      { role: 'user' as const, text: 'old request' },
+      { role: 'assistant' as const, text: 'old answer' },
+      { role: 'user' as const, text: 'latest request' }
+    ]
+
+    expect(stickyPromptFromViewport(messages, [0, 2, 20, 22], 0, 10, false)).toBe('latest request')
+  })
+
+  it('ignores user-role timeline events and waits for measured geometry', () => {
+    const messages = [
+      { role: 'user' as const, text: 'actual request' },
+      { role: 'user' as const, kind: 'event' as const, text: 'notification' }
+    ]
+
+    expect(stickyPromptFromViewport(messages, [0, 2, 4], 8, 10, true)).toBe('actual request')
+    expect(stickyPromptFromViewport(messages, [], 8, 10, true)).toBe('')
   })
 })

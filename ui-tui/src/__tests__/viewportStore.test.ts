@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { getScrollbarSnapshot, getViewportSnapshot, scrollbarSnapshotKey } from '../lib/viewportStore.js'
+import { getScrollbarSnapshot, getViewportSnapshot, scrollbarSnapshotKey, viewportSnapshotKey } from '../lib/viewportStore.js'
 
 describe('viewportStore', () => {
+  it('keeps exact boundaries for sticky request visibility without changing coarse subscribers', () => {
+    const snapshot = { atBottom: false, top: 33, viewportHeight: 20, scrollHeight: 99, pending: 0 }
+    expect(viewportSnapshotKey(snapshot, true)).toBe('0:33:20:99:0')
+    expect(viewportSnapshotKey(snapshot)).toBe('0:40:20:104:0')
+    expect(viewportSnapshotKey({ ...snapshot, top: 34 }, true)).not.toBe(viewportSnapshotKey(snapshot, true))
+  })
   it('normalizes absent scroll handles', () => {
     expect(getViewportSnapshot(null)).toEqual({
       atBottom: true,

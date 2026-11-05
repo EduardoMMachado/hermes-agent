@@ -20,6 +20,11 @@ The terminal title distinguishes foreground processing (`⏳`), work still runni
 in the background (`◷ N bg ·`), and a fully idle session (`✓`). Finishing an agent
 response does not mark the whole session complete while background work remains.
 
+The latest user request stays in a compact, clickable band above the transcript
+only while its original message is off screen, including at the live response
+tail. Clicking jumps to the original; the band disappears once it is visible.
+Visibility uses exact viewport coordinates, not the general eight-row buckets.
+
 ## Install / update
 
 ```bash

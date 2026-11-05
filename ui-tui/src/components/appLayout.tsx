@@ -40,6 +40,7 @@ import { LoopBar } from './loopBar.js'
 import { MessageLine } from './messageLine.js'
 import { PetKitty, PetSprite } from './petSprite.js'
 import { QueuedMessages } from './queuedMessages.js'
+import { StickyUserPrompt } from './stickyUserPrompt.js'
 import { LiveTodoPanel, StreamingAssistant } from './streamingAssistant.js'
 import { type InputCursorSnapshot, TextInput, type TextInputMouseApi } from './textInput.js'
 
@@ -152,8 +153,9 @@ const TranscriptPane = memo(function TranscriptPane({
   composer,
   nativeMode,
   progress,
+  status,
   transcript
-}: Pick<AppLayoutProps, 'actions' | 'composer' | 'progress' | 'transcript'> & { nativeMode: boolean }) {
+}: Pick<AppLayoutProps, 'actions' | 'composer' | 'progress' | 'status' | 'transcript'> & { nativeMode: boolean }) {
   const ui = useStore($uiState)
   const petBox = useStore($petBox)
   const railCols = useAmbientRailWidth('left') + useAmbientRailWidth('right')
@@ -174,7 +176,7 @@ const TranscriptPane = memo(function TranscriptPane({
     const items = transcript.historyItems
 
     for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i].role === 'user') {
+      if (items[i].role === 'user' && !items[i].kind) {
         return i
       }
     }
@@ -266,7 +268,19 @@ const TranscriptPane = memo(function TranscriptPane({
   )
 
   return (
-    <>
+    <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+      {!nativeMode && status.showStickyPrompt && (
+        <StickyUserPrompt
+          onJump={() => {
+            if (lastUserIdx >= 0) {
+              transcript.scrollRef.current?.scrollTo(transcript.virtualHistory.offsets[lastUserIdx] ?? 0)
+            }
+          }}
+          t={ui.theme}
+          text={status.stickyPrompt}
+        />
+      )}
+      <Box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0}>
       {nativeMode ? (
         <Box flexDirection="column" flexGrow={1} onClick={clearBlankSelection}>
           {transcriptContent}
@@ -298,7 +312,8 @@ const TranscriptPane = memo(function TranscriptPane({
           scrollRef={transcript.scrollRef}
         />
       )}
-    </>
+      </Box>
+    </Box>
   )
 })
 
@@ -407,15 +422,7 @@ const ComposerPane = memo(function ComposerPane({
         </Text>
       )}
 
-      {status.showStickyPrompt ? (
-        <Text color={ui.theme.color.muted} wrap="truncate-end">
-          <Text color={ui.theme.color.label}>↳ </Text>
-
-          {status.stickyPrompt}
-        </Text>
-      ) : (
-        <Box height={1} onMouseDown={captureInputDrag} onMouseDrag={dragFromSpacer} onMouseUp={endInputDrag} />
-      )}
+      <Box height={1} onMouseDown={captureInputDrag} onMouseDrag={dragFromSpacer} onMouseUp={endInputDrag} />
 
       <GoalBar cols={Math.max(1, composer.cols - 2)} />
       <LoopBar cols={Math.max(1, composer.cols - 2)} />
@@ -630,6 +637,7 @@ export const AppLayout = memo(function AppLayout({
                 composer={composer}
                 nativeMode={NATIVE_MODE}
                 progress={progress}
+                status={status}
                 transcript={transcript}
               />
             </PerfPane>

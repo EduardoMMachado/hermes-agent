@@ -60,7 +60,11 @@ export function getViewportSnapshot(s?: ScrollBoxHandle | null): ViewportSnapsho
   }
 }
 
-export function viewportSnapshotKey(v: ViewportSnapshot) {
+export function viewportSnapshotKey(v: ViewportSnapshot, precise = false) {
+  if (precise) {
+    return `${v.atBottom ? 1 : 0}:${v.top}:${v.viewportHeight}:${v.scrollHeight}:${v.pending}`
+  }
+
   return `${v.atBottom ? 1 : 0}:${Math.ceil(v.top / 8) * 8}:${v.viewportHeight}:${Math.ceil(v.scrollHeight / 8) * 8}:${v.pending}`
 }
 
@@ -96,11 +100,11 @@ export function scrollbarSnapshotKey(v: ScrollbarSnapshot) {
   return `${v.top}:${v.viewportHeight}:${v.scrollHeight}`
 }
 
-export function useViewportSnapshot(scrollRef: RefObject<ScrollBoxHandle | null>): ViewportSnapshot {
+export function useViewportSnapshot(scrollRef: RefObject<ScrollBoxHandle | null>, precise = false): ViewportSnapshot {
   const key = useSyncExternalStore(
     useCallback((cb: () => void) => scrollRef.current?.subscribe(cb) ?? (() => {}), [scrollRef]),
-    () => viewportSnapshotKey(getViewportSnapshot(scrollRef.current)),
-    () => viewportSnapshotKey(EMPTY)
+    () => viewportSnapshotKey(getViewportSnapshot(scrollRef.current), precise),
+    () => viewportSnapshotKey(EMPTY, precise)
   )
 
   return useMemo(() => {

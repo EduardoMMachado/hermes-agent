@@ -712,6 +712,7 @@ hermes usage --json                   # one JSON document on stdout
 |--------|-------------|
 | `--provider NAME` | Provider to query (default: the configured `model.provider`). Supported: `openai-codex`, `anthropic`, `openrouter`. |
 | `--json` | Print one JSON document instead of the human-readable block. |
+| `--read-only` | For periodic status displays: never refresh or rotate Codex credentials if a usage request is refused. |
 
 Credentials resolve exactly as they do for `/usage` in a session with no live agent (the auth store, then
 the credential pool); the command never adds or refreshes a credential it would not use for chat. Exit code

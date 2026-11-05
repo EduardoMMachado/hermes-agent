@@ -62,3 +62,15 @@ def test_hermes_usage_without_credential_exits_nonzero_with_one_stderr_line(caps
     assert out == ""
     assert err.count("\n") == 1 and "openai-codex" in err
 
+
+def test_hermes_usage_read_only_preserves_the_credential_on_polling(capsys):
+    calls = []
+
+    def fetch(provider, **kwargs):
+        calls.append((provider, kwargs))
+        return _SNAPSHOT
+
+    assert _run(["usage", "--json", "--provider", "openai-codex", "--read-only"], fetch) == 0
+    assert calls == [("openai-codex", {"read_only": True})]
+    assert json.loads(capsys.readouterr().out)["windows"][1]["used_percent"] == 12.5
+

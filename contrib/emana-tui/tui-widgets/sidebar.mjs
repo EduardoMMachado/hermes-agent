@@ -5,6 +5,7 @@
  * On-screen labels are Portuguese on purpose (the owner reads them); code is English.
  */
 import { SOURCE_ICON, ago, fit, usePoll, when } from './lib/data.mjs'
+import { useWeeklyUsage } from './lib/quota.mjs'
 
 const W = 42 // colunas reservadas pelo rail (host usa paddingX 1 → card = W - 2)
 const CARD = W - 2
@@ -161,6 +162,7 @@ export default function register(sdk) {
         Box,
         { flexDirection: 'column', flexShrink: 0 },
         busyRows ? h(Activity, { t, activity }) : null,
+        h(WeeklyQuota, { t }),
         h(Text, { color: t.color.border }, '─'.repeat(INNER)),
         ...HINTS.map(([cmd, label]) =>
           h(
@@ -175,6 +177,26 @@ export default function register(sdk) {
   }
 
   // Footer hints; clicking runs the command. Bare /model opens the session's model picker.
+  function WeeklyQuota({ t }) {
+    const usage = useWeeklyUsage(React)
+    const rows = [['Claude', 'anthropic'], ['Codex', 'openai-codex']].map(([name, provider]) => {
+      const pct = usage[provider]?.percent
+      const valid = typeof pct === 'number'
+      const filled = valid ? Math.min(10, Math.max(0, Math.round(pct / 10))) : 0
+      const bar = valid ? '█'.repeat(filled) + '░'.repeat(10 - filled) : '──────────'
+      const value = valid ? `${pct.toFixed(0)}%` : '—'
+      const color = !valid ? t.color.muted : pct >= 95 ? t.color.error : pct >= 80 ? t.color.warn : t.color.accent
+      return h(Box, { key: provider, flexDirection: 'row' },
+        h(Text, { color: t.color.text }, name.padEnd(8)),
+        h(Text, { color }, bar + ' ' + value.padStart(4)),
+        !valid ? h(Text, { color: t.color.muted }, ' sem leitura') : null)
+    })
+    return h(Box, { flexDirection: 'column', flexShrink: 0 },
+      h(Text, { color: t.color.border }, '─'.repeat(INNER)),
+      h(Text, { bold: true, color: t.color.label }, 'CONSUMO SEMANAL · CONTA'),
+      ...rows)
+  }
+
   const HINTS = [
     ['/sessions', 'trocar de sessão'],
     ['/new', 'nova conversa'],

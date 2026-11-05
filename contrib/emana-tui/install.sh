@@ -50,5 +50,6 @@ set_config display.skin vscode-modern
 set_config display.interface tui
 set_config display.final_response_markdown render
 set_config display.tui_status_indicator unicode
+set_config display.timestamps true
 
 echo "done. Open TUIs pick the widgets up with /widgets-reload; the skin needs a restart."

@@ -185,6 +185,15 @@ const TranscriptPane = memo(function TranscriptPane({
     return -1
   }, [transcript.historyItems])
 
+  const contextIndex = () => {
+    const scroll = transcript.scrollRef.current
+
+    return scroll ? stickyPromptIndexFromViewport(
+      transcript.historyItems, transcript.virtualHistory.offsets,
+      scroll.getScrollTop() + scroll.getPendingDelta()
+    ) : -1
+  }
+
   // Index of the first user-role message; every later user message gets a
   // small dash above it so multi-turn transcripts visually segment by
   // turn. -1 when no user message has been sent yet → no separator ever
@@ -272,6 +281,8 @@ const TranscriptPane = memo(function TranscriptPane({
     <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
       {!nativeMode && status.showStickyPrompt && (
         <StickyUserPrompt
+          cols={Math.max(1, composer.cols - railCols)}
+          createdAt={transcript.historyItems[contextIndex()]?.createdAt}
           onJump={() => {
             const scroll = transcript.scrollRef.current
 
@@ -291,6 +302,7 @@ const TranscriptPane = memo(function TranscriptPane({
           }}
           t={ui.theme}
           text={status.stickyPrompt}
+          timestamps={ui.timestamps}
         />
       )}
       <Box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0}>

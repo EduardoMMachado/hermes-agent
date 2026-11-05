@@ -3,6 +3,16 @@ import { describe, expect, it } from 'vitest'
 import { stickyPromptFromViewport, stickyPromptIndexFromViewport } from '../domain/viewport.js'
 
 describe('stickyPromptFromViewport', () => {
+  it('preserves every line, blank line, indentation and long-message content', () => {
+    const text = 'Primeira linha\n\n  linha indentada\n' + 'texto comprido '.repeat(1000) + '\nÚltima linha'
+    const messages = [{ role: 'user' as const, text }, { role: 'assistant' as const, text: 'answer' }]
+    expect(stickyPromptFromViewport(messages, [0, 12, 50], 20, 40, false)).toBe(text)
+  })
+  it('shows original pasted content rather than the compact composer label', () => {
+    const fullText = 'line one\n\n  line two\nlast line'
+    const messages = [{ role: 'user' as const, text: '[[ compact paste ]]', fullText }]
+    expect(stickyPromptFromViewport(messages, [0, 2], 20, 40, false)).toBe(fullText)
+  })
   it('keeps the request above the viewport even if the next turn starts farther down the screen', () => {
     const messages = [
       { role: 'user' as const, text: 'older prompt' },

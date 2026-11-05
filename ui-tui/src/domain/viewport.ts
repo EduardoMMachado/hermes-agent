@@ -1,6 +1,5 @@
 import type { Msg } from '../types.js'
 
-import { userDisplay } from './messages.js'
 
 /** The request owning the visible context, not the globally latest request. */
 export const stickyPromptIndexFromViewport = (
@@ -41,5 +40,5 @@ export const stickyPromptFromViewport = (
 ) => {
   const index = stickyPromptIndexFromViewport(messages, offsets, top)
 
-  return index < 0 ? '' : userDisplay(messages[index]!.text.trim()).replace(/\s+/g, ' ').trim()
+  return index < 0 ? '' : messages[index]!.fullText ?? messages[index]!.text
 }

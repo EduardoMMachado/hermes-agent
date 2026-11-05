@@ -5,7 +5,8 @@
  * On-screen labels are Portuguese on purpose (the owner reads them); code is English.
  */
 import { SOURCE_ICON, ago, fit, usePoll, when } from './lib/data.mjs'
-import { useWeeklyUsage } from './lib/quota.mjs'
+// Version the dependency when its API changes: the widget host reloads only top-level modules.
+import { formatQuotaReset, useWeeklyUsage } from './lib/quota.mjs?v=2'
 
 const W = 42 // colunas reservadas pelo rail (host usa paddingX 1 → card = W - 2)
 const CARD = W - 2
@@ -186,10 +187,12 @@ export default function register(sdk) {
       const bar = valid ? '█'.repeat(filled) + '░'.repeat(10 - filled) : '──────────'
       const value = valid ? `${pct.toFixed(0)}%` : '—'
       const color = !valid ? t.color.muted : pct >= 95 ? t.color.error : pct >= 80 ? t.color.warn : t.color.accent
-      return h(Box, { key: provider, flexDirection: 'row' },
-        h(Text, { color: t.color.text }, name.padEnd(8)),
-        h(Text, { color }, bar + ' ' + value.padStart(4)),
-        !valid ? h(Text, { color: t.color.muted }, ' sem leitura') : null)
+      return h(Box, { key: provider, flexDirection: 'column' },
+        h(Box, { flexDirection: 'row' },
+          h(Text, { color: t.color.text }, name.padEnd(8)),
+          h(Text, { color }, bar + ' ' + value.padStart(4)),
+          !valid ? h(Text, { color: t.color.muted }, ' sem leitura') : null),
+        h(Text, { color: t.color.muted }, fit('renova ' + formatQuotaReset(usage[provider]?.reset), INNER).trimEnd()))
     })
     return h(Box, { flexDirection: 'column', flexShrink: 0 },
       h(Text, { color: t.color.border }, '─'.repeat(INNER)),

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { fetchWeekly, weeklyWindow } from '../tui-widgets/lib/quota.mjs'
+import { fetchWeekly, formatQuotaReset, weeklyWindow } from '../tui-widgets/lib/quota.mjs'
 
 test('weekly quota is the whole account window, never the short or model-specific one', () => {
   assert.deepEqual(weeklyWindow({ windows: [
@@ -10,6 +10,13 @@ test('weekly quota is the whole account window, never the short or model-specifi
     { label: 'Current week', used_percent: 0.5, resets_at: '2026-11-12T00:00:00Z' }
   ] }), { percent: 0.5, reset: '2026-11-12T00:00:00Z' })
   assert.deepEqual(weeklyWindow({ windows: [{ label: 'Weekly', used_percent: 0 }] }), { percent: 0, reset: null })
+})
+
+test('renewal includes the date, local time and UTC offset, never a fabricated date', () => {
+  assert.equal(formatQuotaReset('2026-11-09T22:29:16Z', 'America/Sao_Paulo'), '09/11/2026, 19:29 GMT-3')
+  assert.match(formatQuotaReset('2026-11-09T22:29:16Z', 'UTC'), /^09\/11\/2026, 22:29 GMT(?:\+0)?$/)
+  assert.equal(formatQuotaReset(null), 'sem data')
+  assert.equal(formatQuotaReset('bad timestamp'), 'sem data')
 })
 
 test('missing and failed quota reads are unavailable, never invented as zero', async () => {

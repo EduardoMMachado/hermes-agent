@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { stickyPromptFromViewport } from '../domain/viewport.js'
+import { stickyPromptFromViewport, stickyPromptIndexFromViewport } from '../domain/viewport.js'
 
 describe('stickyPromptFromViewport', () => {
-  it('hides the sticky prompt when a newer user message is already visible', () => {
+  it('keeps the request above the viewport even if the next turn starts farther down the screen', () => {
     const messages = [
       { role: 'user' as const, text: 'older prompt' },
       { role: 'assistant' as const, text: 'older answer' },
@@ -13,7 +13,9 @@ describe('stickyPromptFromViewport', () => {
 
     const offsets = [0, 2, 10, 12, 20]
 
-    expect(stickyPromptFromViewport(messages, offsets, 8, 16, false)).toBe('')
+    expect(stickyPromptFromViewport(messages, offsets, 8, 16, false)).toBe('older prompt')
+    expect(stickyPromptIndexFromViewport(messages, offsets, 8)).toBe(0)
+    expect(stickyPromptIndexFromViewport(messages, offsets, 16)).toBe(2)
   })
 
   it('shows the latest user message above the viewport when no user message is visible', () => {
@@ -61,14 +63,17 @@ describe('stickyPromptFromViewport', () => {
     expect(stickyPromptFromViewport(messages, [0, 5, 20], 4, 10, false)).toBe('')
   })
 
-  it('keeps the latest request rather than replacing it with an older visible turn', () => {
+  it('does not pin a future request below the viewport', () => {
     const messages = [
       { role: 'user' as const, text: 'old request' },
       { role: 'assistant' as const, text: 'old answer' },
       { role: 'user' as const, text: 'latest request' }
     ]
 
-    expect(stickyPromptFromViewport(messages, [0, 2, 20, 22], 0, 10, false)).toBe('latest request')
+    expect(stickyPromptFromViewport(messages, [0, 2, 20, 22], 0, 10, false)).toBe('')
+    expect(stickyPromptFromViewport(messages, [0, 2, 20, 22], 5, 15, false)).toBe('old request')
+    expect(stickyPromptFromViewport(messages, [0, 2, 20, 22], 20, 30, false)).toBe('')
+    expect(stickyPromptFromViewport(messages, [0, 2, 20, 22], 22, 30, false)).toBe('latest request')
   })
 
   it('ignores user-role timeline events and waits for measured geometry', () => {

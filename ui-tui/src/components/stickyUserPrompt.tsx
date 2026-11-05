@@ -25,7 +25,7 @@ export function StickyUserPrompt({ onJump, t, text }: StickyUserPromptProps) {
       paddingX={1}
     >
       <Text bold color={t.color.accent} wrap="truncate-end">
-        ↑ SUA ÚLTIMA MENSAGEM · clique para ver
+        ↑ SUA MENSAGEM ACIMA · clique para ver
       </Text>
       <Text color={t.color.label} wrap="truncate-end">
         {text}

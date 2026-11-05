@@ -15,6 +15,7 @@ import { $voicePartial } from '../app/voicePartialStore.js'
 import { INLINE_MODE, NATIVE_MODE, SHOW_FPS, TERMUX_TUI_MODE } from '../config/env.js'
 import { placeholder } from '../content/placeholders.js'
 import { prevRenderedMsg } from '../domain/blockLayout.js'
+import { stickyPromptIndexFromViewport } from '../domain/viewport.js'
 import { useT } from '../i18n/useT.js'
 import {
   COMPOSER_PROMPT_GAP_WIDTH,
@@ -272,8 +273,20 @@ const TranscriptPane = memo(function TranscriptPane({
       {!nativeMode && status.showStickyPrompt && (
         <StickyUserPrompt
           onJump={() => {
-            if (lastUserIdx >= 0) {
-              transcript.scrollRef.current?.scrollTo(transcript.virtualHistory.offsets[lastUserIdx] ?? 0)
+            const scroll = transcript.scrollRef.current
+
+            if (!scroll) {
+              return
+            }
+
+            const target = stickyPromptIndexFromViewport(
+              transcript.historyItems,
+              transcript.virtualHistory.offsets,
+              scroll.getScrollTop() + scroll.getPendingDelta()
+            )
+
+            if (target >= 0) {
+              scroll.scrollTo(transcript.virtualHistory.offsets[target] ?? 0)
             }
           }}
           t={ui.theme}

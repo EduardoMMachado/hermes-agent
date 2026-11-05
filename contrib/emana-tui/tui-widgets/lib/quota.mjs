@@ -11,6 +11,17 @@ const LOCK = CACHE + '.lock'
 const PROVIDERS = ['anthropic', 'openai-codex']
 const EMPTY = { anthropic: { percent: null }, 'openai-codex': { percent: null } }
 
+/** Provider timestamps are UTC; the display follows this machine's local zone. */
+export function formatQuotaReset(iso, timeZone) {
+  if (!iso) return 'sem data'
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return 'sem data'
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'shortOffset', timeZone
+  }).format(date)
+}
+
 export function weeklyWindow(document) {
   const window = document?.windows?.find(w => ['Current week', 'Weekly'].includes(w.label))
   const percent = window?.used_percent

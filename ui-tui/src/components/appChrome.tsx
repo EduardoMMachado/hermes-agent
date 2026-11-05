@@ -908,7 +908,7 @@ export function FloatBox({ children, color }: { children: ReactNode; color: stri
 }
 
 export function StickyPromptTracker({ messages, offsets, scrollRef, onChange }: StickyPromptTrackerProps) {
-  const { atBottom, bottom, top } = useViewportSnapshot(scrollRef)
+  const { atBottom, bottom, top } = useViewportSnapshot(scrollRef, true)
   const text = stickyPromptFromViewport(messages, offsets, top, bottom, atBottom)
 
   useEffect(() => onChange(text), [onChange, text])

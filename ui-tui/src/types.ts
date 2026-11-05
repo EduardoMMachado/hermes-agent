@@ -140,6 +140,8 @@ export interface Msg {
   panelData?: PanelData
   role: Role
   text: string
+  /** Original submitted text when the live composer displays a compact paste label. */
+  fullText?: string
   // Unix seconds the message was authored (persisted transcript timestamp on
   // rehydrate, wall clock at append time for live rows). Rendered as a dim
   // [HH:MM] label when `display.timestamps` is on (#41531).

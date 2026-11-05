@@ -82,6 +82,7 @@ export const StreamingAssistant = memo(function StreamingAssistant({
             reasoningActive={block.msg.isLiveReasoning === true}
             sections={sections}
             t={ui.theme}
+            timestamps={ui.timestamps}
             {...(block.tools ? { tools: block.tools } : {})}
           />
         )

@@ -250,11 +250,10 @@ describe('capTranscriptHistory', () => {
 })
 
 describe('display.timestamps (#41531)', () => {
-  it('formats a Unix-seconds timestamp as [HH:MM] and rejects garbage', () => {
-    const noon = new Date()
-    noon.setHours(13, 5, 0, 0)
+  it('formats local date and time to seconds and rejects garbage', () => {
+    const noon = new Date(2026, 10, 5, 13, 5, 9)
 
-    expect(fmtMsgTimestamp(noon.getTime() / 1000)).toBe('[13:05]')
+    expect(fmtMsgTimestamp(noon.getTime() / 1000)).toBe('[05/11/2026 13:05:09]')
     expect(fmtMsgTimestamp(undefined)).toBeNull()
     expect(fmtMsgTimestamp(0)).toBeNull()
     expect(fmtMsgTimestamp(Number.NaN)).toBeNull()

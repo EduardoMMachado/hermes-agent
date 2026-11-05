@@ -464,7 +464,9 @@ function SubagentAccordion({
           {item.tools.map((line, index) => (
             <TreeTextRow
               branch={index === item.tools.length - 1 ? 'last' : 'mid'}
-              color={t.color.text}
+              // Processing recedes: tool lines in muted, so the response below
+              // is the only full-contrast text in the turn.
+              color={t.color.muted}
               content={
                 <>
                   <Text color={t.color.tool}>● </Text>
@@ -842,7 +844,9 @@ export const ToolTrail = memo(function ToolTrail({
 
     if (parsed) {
       groups.push({
-        color: parsed.mark === '✗' ? t.color.error : t.color.text,
+        // Finished calls recede to muted (errors keep their colour): the response,
+        // not the processing log, is the full-contrast text of a turn.
+        color: parsed.mark === '✗' ? t.color.error : t.color.muted,
         content: parsed.call,
         details: [],
         key: `tr-${i}`,

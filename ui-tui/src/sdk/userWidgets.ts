@@ -4,7 +4,7 @@ import { homedir } from 'os'
 import { dirname, join } from 'path'
 import { pathToFileURL } from 'url'
 
-import { Box, Text } from '@hermes/ink'
+import { Box, ScrollBox, Text } from '@hermes/ink'
 import * as React from 'react'
 
 import { Accordion } from '../components/accordion.js'
@@ -14,6 +14,7 @@ import { GridAreas, WidgetGrid } from '../components/widgetGrid.js'
 import { gauge, hbars, sparkline, sparkRows } from '../lib/charts.js'
 import { recordParentLifecycle } from '../lib/parentLog.js'
 
+import { getSessionId, runSlash, useLiveActivity, useSessionInfo } from './actions.js'
 import { openWidget, updateWidget } from './host.js'
 import { defineWidgetApp, listWidgetApps, removeWidgetApp } from './registry.js'
 import { isCtrl } from './types.js'
@@ -40,19 +41,24 @@ export const widgetSdk = {
   GridAreas,
   Overlay,
   React,
+  ScrollBox,
   Shimmer,
   ShimmerRows,
   Text,
   WidgetGrid,
   defineWidgetApp,
   gauge,
+  getSessionId,
   h: React.createElement,
   hbars,
   isCtrl,
   openWidget,
+  runSlash,
   sparkRows,
   sparkline,
   updateWidget,
+  useLiveActivity,
+  useSessionInfo,
   useShimmerPhase
 } as const
 

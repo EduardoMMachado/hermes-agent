@@ -1,51 +1,44 @@
 import type { Msg } from '../types.js'
 
-import { userDisplay } from './messages.js'
 
-const upperBound = (offsets: ArrayLike<number>, target: number) => {
-  let lo = 0
-  let hi = offsets.length
+/** The request owning the visible context, not the globally latest request. */
+export const stickyPromptIndexFromViewport = (
+  messages: readonly Msg[],
+  offsets: ArrayLike<number>,
+  top: number
+) => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role !== 'user' || messages[i]?.kind) {
+      continue
+    }
 
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
+    const start = offsets[i]
+    const end = offsets[i + 1]
 
-    offsets[mid]! <= target ? (lo = mid + 1) : (hi = mid)
+    if (start == null || end == null) {
+      return -1
+    }
+
+    // Requests farther down the conversation do not own this viewport yet.
+    if (start > top) {
+      continue
+    }
+
+    // Do not duplicate a request still partially on screen.
+    return end <= top ? i : -1
   }
 
-  return lo
+  return -1
 }
 
 export const stickyPromptFromViewport = (
   messages: readonly Msg[],
   offsets: ArrayLike<number>,
   top: number,
-  bottom: number,
-  sticky: boolean
+  _bottom: number,
+  _sticky: boolean
 ) => {
-  if (sticky || !messages.length) {
-    return ''
-  }
+  const index = stickyPromptIndexFromViewport(messages, offsets, top)
 
-  const first = Math.max(0, upperBound(offsets, top) - 1)
-  const last = Math.max(first, upperBound(offsets, bottom) - 1)
-  const visibleStart = Math.min(messages.length, first)
-  const visibleEnd = Math.min(messages.length - 1, last)
-
-  for (let i = visibleStart; i <= visibleEnd; i++) {
-    if (messages[i]?.role === 'user') {
-      return ''
-    }
-  }
-
-  for (let i = Math.min(messages.length - 1, visibleStart - 1); i >= 0; i--) {
-    if (messages[i]?.role !== 'user') {
-      continue
-    }
-
-    return (offsets[i + 1] ?? (offsets[i] ?? 0) + 1) <= top
-      ? userDisplay(messages[i]!.text.trim()).replace(/\s+/g, ' ').trim()
-      : ''
-  }
-
-  return ''
+  return index < 0 ? '' : messages[index]!.fullText ?? messages[index]!.text
 }

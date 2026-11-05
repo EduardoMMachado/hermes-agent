@@ -43,7 +43,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
     provider = resolve_requested_provider(getattr(args, "provider", None))
     # No explicit key: the fetcher resolves the credential exactly as a session without a live agent
     # would (singleton store, then credential pool) — it never adopts or refreshes anything else.
-    snapshot = fetch_account_usage(provider)
+    snapshot = fetch_account_usage(provider, read_only=bool(getattr(args, "read_only", False)))
     if snapshot is None:
         print(
             f"No account usage available for provider '{provider}': no credential is configured for it, "
@@ -70,4 +70,6 @@ def build_usage_parser(subparsers) -> None:
         "--provider", default=None, help="Provider to query (default: the configured model provider)")
     usage_parser.add_argument(
         "--json", action="store_true", help="Print one JSON document instead of the human-readable block")
+    usage_parser.add_argument(
+        "--read-only", action="store_true", help="Never refresh or rotate Codex credentials on a quota read")
     usage_parser.set_defaults(func=cmd_usage)

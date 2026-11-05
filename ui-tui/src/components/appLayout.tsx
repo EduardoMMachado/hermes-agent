@@ -15,6 +15,7 @@ import { $voicePartial } from '../app/voicePartialStore.js'
 import { INLINE_MODE, NATIVE_MODE, SHOW_FPS, TERMUX_TUI_MODE } from '../config/env.js'
 import { placeholder } from '../content/placeholders.js'
 import { prevRenderedMsg } from '../domain/blockLayout.js'
+import { stickyPromptIndexFromViewport } from '../domain/viewport.js'
 import { useT } from '../i18n/useT.js'
 import {
   COMPOSER_PROMPT_GAP_WIDTH,
@@ -25,7 +26,7 @@ import {
 import { PerfPane } from '../lib/perfPane.js'
 import { composerPromptText } from '../lib/prompt.js'
 import { sessionLabel } from '../lib/sessionLabel.js'
-import { ActiveWidgetSlot, AmbientDock, AmbientRail, useAmbientRailWidth } from '../sdk/host.js'
+import { ActiveWidgetSlot, AmbientDock, AmbientRail, HeaderDock, useAmbientRailWidth } from '../sdk/host.js'
 
 import { AgentsOverlay } from './agentsOverlay.js'
 import { LiveAgentsPanel } from './agentsPanel.js'
@@ -40,6 +41,7 @@ import { LoopBar } from './loopBar.js'
 import { MessageLine } from './messageLine.js'
 import { PetKitty, PetSprite } from './petSprite.js'
 import { QueuedMessages } from './queuedMessages.js'
+import { StickyUserPrompt } from './stickyUserPrompt.js'
 import { LiveTodoPanel, StreamingAssistant } from './streamingAssistant.js'
 import { type InputCursorSnapshot, TextInput, type TextInputMouseApi } from './textInput.js'
 
@@ -152,8 +154,9 @@ const TranscriptPane = memo(function TranscriptPane({
   composer,
   nativeMode,
   progress,
+  status,
   transcript
-}: Pick<AppLayoutProps, 'actions' | 'composer' | 'progress' | 'transcript'> & { nativeMode: boolean }) {
+}: Pick<AppLayoutProps, 'actions' | 'composer' | 'progress' | 'status' | 'transcript'> & { nativeMode: boolean }) {
   const ui = useStore($uiState)
   const petBox = useStore($petBox)
   const railCols = useAmbientRailWidth('left') + useAmbientRailWidth('right')
@@ -174,13 +177,22 @@ const TranscriptPane = memo(function TranscriptPane({
     const items = transcript.historyItems
 
     for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i].role === 'user') {
+      if (items[i].role === 'user' && !items[i].kind) {
         return i
       }
     }
 
     return -1
   }, [transcript.historyItems])
+
+  const contextIndex = () => {
+    const scroll = transcript.scrollRef.current
+
+    return scroll ? stickyPromptIndexFromViewport(
+      transcript.historyItems, transcript.virtualHistory.offsets,
+      scroll.getScrollTop() + scroll.getPendingDelta()
+    ) : -1
+  }
 
   // Index of the first user-role message; every later user message gets a
   // small dash above it so multi-turn transcripts visually segment by
@@ -266,7 +278,34 @@ const TranscriptPane = memo(function TranscriptPane({
   )
 
   return (
-    <>
+    <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+      {!nativeMode && status.showStickyPrompt && (
+        <StickyUserPrompt
+          cols={Math.max(1, composer.cols - railCols)}
+          createdAt={transcript.historyItems[contextIndex()]?.createdAt}
+          onJump={() => {
+            const scroll = transcript.scrollRef.current
+
+            if (!scroll) {
+              return
+            }
+
+            const target = stickyPromptIndexFromViewport(
+              transcript.historyItems,
+              transcript.virtualHistory.offsets,
+              scroll.getScrollTop() + scroll.getPendingDelta()
+            )
+
+            if (target >= 0) {
+              scroll.scrollTo(transcript.virtualHistory.offsets[target] ?? 0)
+            }
+          }}
+          t={ui.theme}
+          text={status.stickyPrompt}
+          timestamps={ui.timestamps}
+        />
+      )}
+      <Box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0}>
       {nativeMode ? (
         <Box flexDirection="column" flexGrow={1} onClick={clearBlankSelection}>
           {transcriptContent}
@@ -298,7 +337,8 @@ const TranscriptPane = memo(function TranscriptPane({
           scrollRef={transcript.scrollRef}
         />
       )}
-    </>
+      </Box>
+    </Box>
   )
 })
 
@@ -316,6 +356,9 @@ const ComposerPane = memo(function ComposerPane({
   const voicePartial = useStore($voicePartial)
   const T = useT()
   const isBlocked = useStore($isBlocked)
+  // A right rail (the side-bar widget) shows subagents / background work itself
+  // via sdk.useLiveActivity, so the dock above the composer would duplicate it.
+  const activityInRail = useAmbientRailWidth('right') > 0
   const sh = (composer.inputBuf[0] ?? composer.input).startsWith('!')
 
   const promptText = composerPromptText(
@@ -398,25 +441,17 @@ const ComposerPane = memo(function ComposerPane({
         t={ui.theme}
       />
 
-      {ui.bgTasks.size > 0 && (
+      {ui.bgTasks.size > 0 && !activityInRail && (
         <Text color={ui.theme.color.muted}>
           {ui.bgTasks.size} background {ui.bgTasks.size === 1 ? 'task' : 'tasks'} running
         </Text>
       )}
 
-      {status.showStickyPrompt ? (
-        <Text color={ui.theme.color.muted} wrap="truncate-end">
-          <Text color={ui.theme.color.label}>↳ </Text>
-
-          {status.stickyPrompt}
-        </Text>
-      ) : (
-        <Box height={1} onMouseDown={captureInputDrag} onMouseDrag={dragFromSpacer} onMouseUp={endInputDrag} />
-      )}
+      <Box height={1} onMouseDown={captureInputDrag} onMouseDrag={dragFromSpacer} onMouseUp={endInputDrag} />
 
       <GoalBar cols={Math.max(1, composer.cols - 2)} />
       <LoopBar cols={Math.max(1, composer.cols - 2)} />
-      <LiveAgentsPanel cols={Math.max(1, composer.cols - 2)} />
+      {!activityInRail && <LiveAgentsPanel cols={Math.max(1, composer.cols - 2)} />}
       <StatusRulePane at="top" composer={composer} nativeMode={nativeMode} status={status} />
       <AmbientDock placement="dock-top" />
 
@@ -540,7 +575,7 @@ const StatusRulePane = memo(function StatusRulePane({
   }
 
   return (
-    <Box marginTop={at === 'top' ? 1 : 0}>
+    <Box backgroundColor={ui.theme.color.statusBg} marginTop={at === 'top' ? 1 : 0}>
       <StatusRule
         battery={ui.battery ? ui.batteryStatus : null}
         bgCount={ui.bgTasks.size}
@@ -594,11 +629,24 @@ export const AppLayout = memo(function AppLayout({
   const Shell = INLINE_MODE ? Fragment : AlternateScreen
   const shellProps = INLINE_MODE ? {} : { mouseTracking }
 
+  // Side rails span the full height (transcript AND composer sit in the
+  // centre column, editor-style), so the composer gets the narrowed width.
+  const showRails = !overlay.agents && !overlay.journey
+  const railCols = useAmbientRailWidth('left') + useAmbientRailWidth('right')
+
+  const centreComposer = useMemo(
+    () => (showRails && railCols ? { ...composer, cols: Math.max(28, composer.cols - railCols) } : composer),
+    [composer, railCols, showRails]
+  )
+
   return (
     <Shell {...shellProps}>
       <Box flexDirection="column" flexGrow={1} position={NATIVE_MODE ? undefined : 'relative'}>
+        {!overlay.agents && !overlay.journey && <HeaderDock />}
         <Box flexDirection="row" flexGrow={1}>
-          {!overlay.agents && !overlay.journey && <AmbientRail side="left" />}
+          {showRails && <AmbientRail side="left" />}
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+          <Box flexDirection="row" flexGrow={1} flexShrink={1}>
           {overlay.agents ? (
             <PerfPane id="agents">
               <AgentsOverlayPane />
@@ -614,18 +662,18 @@ export const AppLayout = memo(function AppLayout({
                 composer={composer}
                 nativeMode={NATIVE_MODE}
                 progress={progress}
+                status={status}
                 transcript={transcript}
               />
             </PerfPane>
           )}
-          {!overlay.agents && !overlay.journey && <AmbientRail side="right" />}
-        </Box>
+          </Box>
 
-        {!overlay.agents && !overlay.journey && (
+        {showRails && (
           <>
             <PerfPane id="prompt">
               <PromptZone
-                cols={composer.cols}
+                cols={centreComposer.cols}
                 onApprovalChoice={actions.answerApproval}
                 onClarifyCancel={actions.cancelClarify}
                 onClarifyQuestionAnswer={actions.answerClarifyQuestion}
@@ -640,7 +688,7 @@ export const AppLayout = memo(function AppLayout({
             <PerfPane id="composer">
               <ComposerPane
                 actions={actions}
-                composer={composer}
+                composer={centreComposer}
                 cursorSnapshotRef={cursorSnapshotRef}
                 nativeMode={NATIVE_MODE}
                 status={status}
@@ -654,6 +702,9 @@ export const AppLayout = memo(function AppLayout({
             )}
           </>
         )}
+          </Box>
+          {showRails && <AmbientRail side="right" />}
+        </Box>
 
         {!overlay.agents && !NATIVE_MODE && <PetPane />}
       </Box>

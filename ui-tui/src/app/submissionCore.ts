@@ -82,7 +82,8 @@ function beginOwnedTurn(
   deps.setLastUserMsg(text)
 
   if (show) {
-    deps.appendMessage({ role: 'user', text: displayOverride || displayText })
+    const shown = displayOverride || displayText
+    deps.appendMessage({ role: 'user', text: shown, ...(shown !== text ? { fullText: text } : {}) })
   }
 
   patchUiState({ busy: true, status: 'running…' })

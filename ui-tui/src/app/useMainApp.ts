@@ -40,9 +40,11 @@ import { appendTranscriptMessage, capTranscriptHistory } from '../lib/messages.j
 import { DEFAULT_VOICE_RECORD_KEY, isMac, type ParsedVoiceRecordKey } from '../lib/platform.js'
 import { createResizeCoalescer } from '../lib/resizeCoalescer.js'
 import { asRpcResult, rpcErrorMessage } from '../lib/rpc.js'
+import { sessionTitleMarker } from '../lib/sessionTitleMarker.js'
 import { terminalParityHints } from '../lib/terminalParity.js'
 import { formatAbandonedClarify, sameToolTrailGroup, toolTrailLabel } from '../lib/text.js'
 import { estimatedMsgHeight, messageHeightKey } from '../lib/virtualHeights.js'
+import { setWidgetSlashRunner, useLiveActivity } from '../sdk/actions.js'
 import { onUserWidgets } from '../sdk/userWidgets.js'
 import type { Msg, PanelSection } from '../types.js'
 
@@ -769,7 +771,13 @@ export function useMainApp(gw: GatewayClient) {
   // Format: `<marker> <session name> · <model> · <cwd>` — name/cwd omitted when absent.
   const model = ui.info?.model?.replace(/^.*\//, '') ?? ''
 
-  const marker = overlay.approval || overlay.clarify || hasSensitivePrompt(overlay) ? '⚠' : ui.busy ? '⏳' : '✓'
+  const activity = useLiveActivity()
+
+  const marker = sessionTitleMarker({
+    blocked: Boolean(overlay.approval || overlay.clarify || hasSensitivePrompt(overlay)),
+    busy: ui.busy,
+    background: activity.running + activity.bgTasks.length
+  })
 
   const tabCwd = ui.info?.cwd
 
@@ -1232,6 +1240,13 @@ export function useMainApp(gw: GatewayClient) {
   )
 
   slashRef.current = slash
+
+  // Widgets (e.g. a clickable tab bar) dispatch through the live handler.
+  useEffect(() => {
+    setWidgetSlashRunner(cmd => slashRef.current(cmd))
+
+    return () => setWidgetSlashRunner(null)
+  }, [])
 
   // Answer a server→client request by id; the card closes either way (an
   // expired request has nothing left to answer).

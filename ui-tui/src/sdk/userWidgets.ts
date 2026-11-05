@@ -14,7 +14,7 @@ import { GridAreas, WidgetGrid } from '../components/widgetGrid.js'
 import { gauge, hbars, sparkline, sparkRows } from '../lib/charts.js'
 import { recordParentLifecycle } from '../lib/parentLog.js'
 
-import { getSessionId, runSlash, useSessionInfo } from './actions.js'
+import { getSessionId, runSlash, useLiveActivity, useSessionInfo } from './actions.js'
 import { openWidget, updateWidget } from './host.js'
 import { defineWidgetApp, listWidgetApps, removeWidgetApp } from './registry.js'
 import { isCtrl } from './types.js'
@@ -56,6 +56,7 @@ export const widgetSdk = {
   sparkRows,
   sparkline,
   updateWidget,
+  useLiveActivity,
   useSessionInfo,
   useShimmerPhase
 } as const

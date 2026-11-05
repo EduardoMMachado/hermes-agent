@@ -316,6 +316,9 @@ const ComposerPane = memo(function ComposerPane({
   const voicePartial = useStore($voicePartial)
   const T = useT()
   const isBlocked = useStore($isBlocked)
+  // A right rail (the side-bar widget) shows subagents / background work itself
+  // via sdk.useLiveActivity, so the dock above the composer would duplicate it.
+  const activityInRail = useAmbientRailWidth('right') > 0
   const sh = (composer.inputBuf[0] ?? composer.input).startsWith('!')
 
   const promptText = composerPromptText(
@@ -398,7 +401,7 @@ const ComposerPane = memo(function ComposerPane({
         t={ui.theme}
       />
 
-      {ui.bgTasks.size > 0 && (
+      {ui.bgTasks.size > 0 && !activityInRail && (
         <Text color={ui.theme.color.muted}>
           {ui.bgTasks.size} background {ui.bgTasks.size === 1 ? 'task' : 'tasks'} running
         </Text>
@@ -416,7 +419,7 @@ const ComposerPane = memo(function ComposerPane({
 
       <GoalBar cols={Math.max(1, composer.cols - 2)} />
       <LoopBar cols={Math.max(1, composer.cols - 2)} />
-      <LiveAgentsPanel cols={Math.max(1, composer.cols - 2)} />
+      {!activityInRail && <LiveAgentsPanel cols={Math.max(1, composer.cols - 2)} />}
       <StatusRulePane at="top" composer={composer} nativeMode={nativeMode} status={status} />
       <AmbientDock placement="dock-top" />
 

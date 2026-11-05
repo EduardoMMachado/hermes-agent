@@ -7,6 +7,8 @@ import { BOX_CLOSE, BOX_OPEN, texToUnicode } from '../lib/mathUnicode.js'
 import { highlightLine, isHighlightable } from '../lib/syntax.js'
 import type { Theme } from '../theme.js'
 
+import { CodeCopyButton } from './codeCopyButton.js'
+
 // `\boxed{X}` regions in `texToUnicode` output are marked with the
 // non-printable U+0001 / U+0002 sentinels. Split on them and render the
 // boxed segment with `inverse + bold` so it reads as a highlighter-pen
@@ -799,7 +801,10 @@ function MdImpl({ cols, compact, t, text }: MdProps) {
 
         nodes.push(
           <Box flexDirection="column" key={key} paddingLeft={2}>
-            {lang && !isDiff && <Text color={t.color.muted}>{'─ ' + lang}</Text>}
+            <Box flexDirection="row">
+              {lang && !isDiff ? <Text color={t.color.muted}>{'─ ' + lang + '  '}</Text> : null}
+              <CodeCopyButton t={t} text={block.join('\n')} />
+            </Box>
 
             {block.map((l, j) => {
               if (highlighted) {

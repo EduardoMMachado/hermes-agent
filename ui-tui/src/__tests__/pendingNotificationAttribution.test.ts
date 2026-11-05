@@ -20,7 +20,7 @@ function harness() {
   const messages: Msg[] = [{ role: 'user', text: 'The real human request' }]
   const noop = vi.fn()
 
-  const onEvent = createGatewayEventHandler({
+  const context = {
     composer: { dequeue: () => undefined, queueEditRef: { current: null }, sendQueued: noop, setInput: noop },
     gateway: { gw: { request: vi.fn(async () => null) }, rpc: vi.fn(async () => null) },
     session: { STARTUP_RESUME_ID: '', colsRef: { current: 80 }, newSession: noop, resetSession: noop,
@@ -29,7 +29,9 @@ function harness() {
     system: { bellOnComplete: false, sys: noop },
     transcript: { appendMessage: (message: Msg) => messages.push(message), panel: noop, setHistoryItems: noop },
     voice: { setProcessing: noop, setRecording: noop, setVoiceEnabled: noop }
-  } as any)
+  } as any
+
+  let onEvent = createGatewayEventHandler(context)
 
   const info = (rows: ReturnType<typeof pending>[]) => onEvent(canonicalEvent({
     type: 'session.info', session_id: 'owner', payload: { pending: rows, running: true }
@@ -39,7 +41,7 @@ function harness() {
     type: 'message.start', session_id: sessionId, admission_id: id, payload
   } as any)
 
-  return { messages, info, start }
+  return { messages, info, start, remount: () => { onEvent = createGatewayEventHandler(context) } }
 }
 
 beforeEach(() => {
@@ -71,6 +73,16 @@ describe('queued notification authorship', () => {
       expect(stickyPromptFromViewport(h.messages, [0, 2, 4], 5, 10, false)).toBe('The real human request')
     }
   )
+
+  it('retains trusted origin when a render recreates the event handler between frames', () => {
+    const h = harness()
+    h.info([pending('notice', notification)])
+    h.start('notice', { display_kind: 'process_complete', display_text: 'Process finished' })
+    h.remount()
+    h.info([pending('notice', notification, 'started')])
+
+    expect(h.messages.at(-1)).toEqual({ role: 'system', kind: 'event', text: 'Process finished' })
+  })
 
   it('keeps a genuine human quote of notification text as a human request', () => {
     const h = harness()

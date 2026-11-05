@@ -9,9 +9,13 @@ export type PendingRow = NonNullable<SessionInfo['pending_submissions']>[number]
 // A busy-time admission defers its bubble until the authority starts it, so
 // the bubble lands after the in-flight assistant reply instead of inside it.
 const shown = new Set<string>()
+let startedMessage: GatewayEvent<'message.start'> | undefined
 
 export const markBubbleShown = (inputId?: string) => { if (inputId) { shown.add(inputId) } }
-export const resetBubbleLedger = () => shown.clear()
+
+export const resetBubbleLedger = () => { shown.clear(); startedMessage = undefined }
+
+export const rememberBubbleStart = (event: GatewayEvent<'message.start'>) => { startedMessage = event }
 
 // Rows the authority just moved queued → started whose bubble nobody painted.
 // Only a transition observed by THIS client counts: a resume snapshot's started
@@ -25,10 +29,12 @@ export function newlyStartedRows(previous: PendingRow[] | undefined, incoming: P
 
 export const isServerQueued = (row: PendingRow) => row.status === 'queued' || row.status === 'unknown'
 
-export function startedBubbleMessages(row: PendingRow, start?: GatewayEvent<'message.start'>): Msg[] {
+export function startedBubbleMessages(row: PendingRow, sessionId: null | string): Msg[] {
   // Transport role does not establish human authorship. Only the owner's
   // display metadata for this exact admission can classify an automated turn.
-  const display = start?.admission_id === row.admission_id ? start.payload : undefined
+  // Keep it with the bubble ledger: React can recreate the handler between frames.
+  const display = startedMessage?.session_id === sessionId && startedMessage?.admission_id === row.admission_id
+    ? startedMessage.payload : undefined
 
   return toTranscriptMessages([{
     role: 'user', text: row.user,

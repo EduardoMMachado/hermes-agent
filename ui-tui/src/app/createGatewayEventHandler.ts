@@ -3,7 +3,7 @@ import { execFile } from 'child_process'
 import { forceRedraw, onTerminalBackground, onTerminalForeground } from '@hermes/ink'
 import { stripAnsi } from '@hermes/shared/ansi'
 import { relativeLuminance } from '@hermes/shared/color'
-import type { GatewayEvent, MessageDeltaPayload, SubagentStatus, Usage } from '@hermes/shared/gateway-events'
+import type { MessageDeltaPayload, SubagentStatus, Usage } from '@hermes/shared/gateway-events'
 import type { UsageLimit } from '@hermes/shared/plan-usage'
 
 import { STARTUP_IMAGE, STARTUP_QUERY } from '../config/env.js'
@@ -45,7 +45,7 @@ import type { GatewayEventHandlerContext, NoticeLevel } from './interfaces.js'
 import { applyControlSnapshot } from './loopStatus.js'
 import { getOverlayState, patchOverlayState, SENSITIVE_PROMPTS } from './overlayStore.js'
 import { takePastes } from './pasteStore.js'
-import { markBubbleShown, newlyStartedRows, startedBubbleMessages } from './pendingBubbles.js'
+import { markBubbleShown, newlyStartedRows, rememberBubbleStart, startedBubbleMessages } from './pendingBubbles.js'
 import { flashGoodVibes, flashPet } from './petFlashStore.js'
 import { forgetServerRequest } from './serverRequestStore.js'
 import { noteCanonicalCompletion } from './slash/canonicalSessionCommands.js'
@@ -642,10 +642,9 @@ interface SessionInfoSinks {
   appendMessage: (msg: Msg) => void
   setHistoryItems: GatewayEventHandlerContext['transcript']['setHistoryItems']
   setStatus: (status: string) => void
-  startedMessage?: GatewayEvent<'message.start'>
 }
 
-function applySessionInfo(payload: unknown, { appendMessage, setHistoryItems, setStatus, startedMessage }: SessionInfoSinks): void {
+function applySessionInfo(payload: unknown, { appendMessage, setHistoryItems, setStatus }: SessionInfoSinks): void {
   const current = getUiState().info
   const incoming = payload as SessionInfo | undefined
 
@@ -664,7 +663,7 @@ function applySessionInfo(payload: unknown, { appendMessage, setHistoryItems, se
   for (const started of newlyStartedRows(current?.pending_submissions, incoming.pending_submissions)) {
     markBubbleShown(started.input_id)
 
-    for (const message of startedBubbleMessages(started, startedMessage)) {
+    for (const message of startedBubbleMessages(started, getUiState().sid)) {
       // Human inputs retain their paste chips and full pinned request.
       const pastes = message.role === 'user' && message.text ? takePastes(message.text) : undefined
 
@@ -833,7 +832,6 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
   let pendingThinkingStatus = ''
   let thinkingStatusTimer: null | ReturnType<typeof setTimeout> = null
   let startupPromptSubmitted = false
-  let startedMessage: GatewayEvent<'message.start'> | undefined
 
   // Request IDs of clarify prompts we've already flushed to the transcript as
   // an abandoned-prompt record, so the tool.complete and message.complete
@@ -1243,7 +1241,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         return
 
       case 'session.info':
-        applySessionInfo(ev.payload, { appendMessage, setHistoryItems, setStatus, startedMessage })
+        applySessionInfo(ev.payload, { appendMessage, setHistoryItems, setStatus })
 
         return
 
@@ -1296,7 +1294,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         return
 
       case 'message.start':
-        startedMessage = ev
+        rememberBubbleStart(ev)
         resetAgentsNudgeTurnState()
         turnController.startMessage()
 

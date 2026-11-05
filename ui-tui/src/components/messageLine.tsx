@@ -1,5 +1,6 @@
 import { Ansi, Box, NoSelect, Text } from '@hermes/ink'
 import { hasAnsi, sanitizeAnsiForRender, stripAnsi } from '@hermes/shared/ansi'
+import { mix } from '@hermes/shared/color'
 import { memo, useState } from 'react'
 
 import { TERMUX_TUI_MODE } from '../config/env.js'
@@ -166,13 +167,20 @@ export const MessageLine = memo(function MessageLine({
     )
   }
 
-  const { body, glyph, prefix } = ROLE[msg.role](t)
+  const { body, glyph: roleGlyph, prefix: rolePrefix } = ROLE[msg.role](t)
   const gutterWidth = transcriptGutterWidth(msg.role, t.brand.prompt)
 
   const showDetails =
     (toolsMode !== 'hidden' && Boolean(msg.tools?.length)) || (thinkingMode !== 'hidden' && Boolean(thinking))
 
-  const showResponseSeparator = shouldShowResponseSeparator(msg, showDetails)
+  const showResponseHeader = shouldShowResponseHeader(msg, prev, showDetails)
+
+  // Separate the user's request, the recessed processing trail and the response
+  // by shape as well as colour, preserving the installed reading hierarchy.
+  const isUserTurn = msg.role === 'user' && !msg.kind
+  const userBand = isUserTurn ? mix(t.color.completionBg, t.color.primary, 0.14) : undefined
+  const glyph = roleGlyph
+  const prefix = isUserTurn ? t.color.primary : msg.role === 'assistant' ? mix(t.color.border, t.color.accent, 0.45) : rolePrefix
 
   const content = (() => {
     if (msg.kind === 'slash') {
@@ -291,13 +299,13 @@ export const MessageLine = memo(function MessageLine({
         </Box>
       )}
 
-      {showResponseSeparator && (
+      {showResponseHeader && (
         <Box marginBottom={1}>
           <NoSelect flexShrink={0} fromLeftEdge width={gutterWidth}>
-            <Text color={t.color.border}>└─ </Text>
+            <Text color={t.color.accent}>◆ </Text>
           </NoSelect>
-          <Text color={t.color.muted} dim>
-            {T.response}
+          <Text bold color={t.color.label}>
+            {t.brand.name}
           </Text>
         </Box>
       )}
@@ -313,11 +321,24 @@ export const MessageLine = memo(function MessageLine({
         </Box>
       )}
 
-      <Box>
-        <NoSelect flexShrink={0} fromLeftEdge width={gutterWidth}>
-          <Text bold={msg.role === 'user'} color={prefix}>
-            {glyph}{' '}
-          </Text>
+      <Box
+        {...(userBand
+          ? { backgroundColor: userBand, width: gutterWidth + transcriptBodyWidth(cols, msg.role, t.brand.prompt, TERMUX_TUI_MODE) }
+          : {})}
+      >
+        <NoSelect
+          flexShrink={0}
+          fromLeftEdge
+          width={gutterWidth}
+          {...(msg.role === 'assistant'
+            ? { borderBottom: false, borderColor: prefix, borderRight: false, borderStyle: 'single' as const, borderTop: false }
+            : {})}
+        >
+          {msg.role === 'assistant' ? null : (
+            <Text bold={msg.role === 'user'} color={prefix}>
+              {glyph}{' '}
+            </Text>
+          )}
         </NoSelect>
 
         <Box width={transcriptBodyWidth(cols, msg.role, t.brand.prompt, TERMUX_TUI_MODE)}>{content}</Box>
@@ -328,6 +349,15 @@ export const MessageLine = memo(function MessageLine({
 
 export const shouldShowResponseSeparator = (msg: Msg, showDetails: boolean): boolean =>
   msg.role === 'assistant' && showDetails && /\S/.test(msg.text)
+
+/** Label new response blocks without repeating the label across text segments. */
+export const shouldShowResponseHeader = (msg: Msg, prev: Msg | undefined, showDetails: boolean): boolean => {
+  if (msg.role !== 'assistant' || msg.kind || !/\S/.test(msg.text)) {
+    return false
+  }
+
+  return showDetails || !prev || prev.role !== 'assistant' || Boolean(prev.kind)
+}
 
 // A MoA reference block (msg.isMoaReference) is the user-facing
 // mixture-of-agents process the user opted into, not private model

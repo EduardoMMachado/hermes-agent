@@ -464,7 +464,7 @@ function SubagentAccordion({
           {item.tools.map((line, index) => (
             <TreeTextRow
               branch={index === item.tools.length - 1 ? 'last' : 'mid'}
-              color={t.color.text}
+              color={t.color.muted}
               content={
                 <>
                   <Text color={t.color.tool}>● </Text>
@@ -842,7 +842,7 @@ export const ToolTrail = memo(function ToolTrail({
 
     if (parsed) {
       groups.push({
-        color: parsed.mark === '✗' ? t.color.error : t.color.text,
+        color: parsed.mark === '✗' ? t.color.error : t.color.muted,
         content: parsed.call,
         details: [],
         key: `tr-${i}`,

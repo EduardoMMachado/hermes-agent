@@ -197,10 +197,11 @@ class SessionAuthority:
         # reset while that turn's admission is started, so the drain runs it once the turn settles.
         self.deferred_resets = {}
 
-    def authorize(self, actor, ref, capability):
+    def authorize(self, actor, ref, capability, *, history_binding=...):
         """Every handler calls this first, so a later ``self.sessions[ref.session_id]`` is
         safe: a deleted/evicted live entry surfaces here as ``not_found``, not as a KeyError
-        deeper in the handler."""
+        deeper in the handler. ``history_binding`` is an internal store snapshot supplied by
+        the live listings; omitted, history authorization reads its own binding as before."""
         from gateway.session_authorities import require_serving
         require_serving(self)
         if actor.profile_id != self.profile_id or ref.profile_id != self.profile_id:
@@ -228,7 +229,7 @@ class SessionAuthority:
                     restore_api_session(self, ref.session_id)
         from gateway.session_history_mount import is_history_mount, require_history_access
         if is_history_mount(self.sessions[ref.session_id]):
-            require_history_access(self, actor, ref.session_id, capability)
+            require_history_access(self, actor, ref.session_id, capability, binding=history_binding)
         from gateway.config import Platform
         source = self.sessions[ref.session_id].source
         from gateway.owner_identity import same_owner

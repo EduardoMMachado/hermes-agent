@@ -42,14 +42,16 @@ def _store_facts(db, session_ids):
     SQLite extracts the target from the receipt, so no receipt is parsed in Python. A malformed or
     non-local receipt reads as no target, as ``_local_target`` does."""
     from hermes_state_local import POLICY_PREFIX
+    from hermes_state_mutation_binding import BINDING_PREFIX
     ids = json.dumps(list(session_ids))
     with db._read_ctx() as conn:
         rows = conn.execute(
             "SELECT s.id, s.source, s.title, s.started_at, s.ended_at, s.message_count, s.model, s.hidden, "
             "s.archived, s.runtime_revision, s.runtime_generation, "
+            "(SELECT value FROM state_meta WHERE key = ? || s.id) AS history_binding, "
             "(SELECT t.ended_at FROM state_meta m JOIN sessions t ON t.id = CASE WHEN json_valid(m.value) "
             "THEN json_extract(m.value, '$.entry.session_id') END WHERE m.key = ? || s.id) AS target_ended_at "
-            "FROM sessions s WHERE s.id IN (SELECT value FROM json_each(?))", (POLICY_PREFIX, ids)).fetchall()
+            "FROM sessions s WHERE s.id IN (SELECT value FROM json_each(?))", (BINDING_PREFIX, POLICY_PREFIX, ids)).fetchall()
         pending = conn.execute(
             "SELECT target_session_id, admission_id, seq, status FROM session_admissions "
             "WHERE target_session_id IN (SELECT value FROM json_each(?)) "
@@ -74,13 +76,14 @@ def _execution_state(pending) -> str:
     return 'unknown' if 'unknown' in statuses else ('running' if 'started' in statuses else 'idle')
 
 
-def _readable(authority, actor, session_id) -> bool:
+def _readable(authority, actor, session_id, *, history_binding=...) -> bool:
     if session_id not in authority.sessions:
         return False  # retired since the snapshot: a listing never restores a session
     from gateway.session_retirement import LISTING_READ
     token = LISTING_READ.set(True)
     try:
-        authority.authorize(actor, SessionRef(actor.profile_id, session_id), 'session:read')
+        kwargs = {} if history_binding is ... else {'history_binding': history_binding}
+        authority.authorize(actor, SessionRef(actor.profile_id, session_id), 'session:read', **kwargs)
     except RuntimeStoreError as exc:
         if exc.reason not in _SKIPPED_REASONS:
             raise
@@ -90,26 +93,63 @@ def _readable(authority, actor, session_id) -> bool:
     return True
 
 
+async def _shared_store_facts(authority, batch):
+    """Only an in-flight read is shared; live state and authorization never leave the owner loop.
+
+    The table belongs to this authority, not a profile path or process-global cache. Shielding
+    lets one disconnected poller abandon its wait without cancelling another poller's read.
+    """
+    reads = authority.__dict__.setdefault('_listing_reads', {})
+    key = (authority.db, tuple(batch))
+    task = reads.get(key)
+    if task is None or task.done():
+        async def read():
+            try:
+                return await asyncio.to_thread(_store_facts, authority.db, batch)
+            finally:
+                reads.pop(key, None)
+        task = reads[key] = asyncio.create_task(read())
+        # A read may outlive every waiter; still report its storage failure. Awaiting callers
+        # retain the original exception and the RPC dispatch's normal error mapping.
+        task.add_done_callback(_read_finished)
+    return await asyncio.shield(task)
+
+
+def _read_finished(task):
+    if not task.cancelled() and (error := task.exception()) is not None:
+        import logging
+        logging.getLogger(__name__).error('Live session listing read failed',
+                                         exc_info=(type(error), error, error.__traceback__))
+
+
 async def live_entries(authority, actor) -> list[LiveEntry]:
     """Every live session *actor* may read, with its handle, picker row and closed-and-unviewed verdict."""
     from gateway.session_local_close import closed_idle_unviewed
+    from gateway.session_history_mount import is_history_mount
     entries = []
     snapshot = tuple(authority.sessions)
     for start in range(0, len(snapshot), LISTING_BATCH):
-        batch = [sid for sid in snapshot[start:start + LISTING_BATCH] if _readable(authority, actor, sid)]
+        batch = [sid for sid in snapshot[start:start + LISTING_BATCH]
+                 if sid in authority.sessions and (is_history_mount(authority.sessions[sid])
+                                                   or _readable(authority, actor, sid))]
         if not batch:
             continue
-        rows, pending = await asyncio.to_thread(_store_facts, authority.db, batch)
+        rows, pending = await _shared_store_facts(authority, batch)
         if authority.retiring or authority.retired:
             return []  # parked or unserved during the read: nothing here is this profile's to list any more
         for sid in batch:
             live, row = authority.sessions.get(sid), rows.get(sid)
             if live is None or row is None:
                 continue  # retired during the read, or its row was deleted (``_handle``'s not_found)
-            masked = _masked_pending(live, pending.get(sid, []))
-            state = _execution_state(masked)
-            handle = SessionHandle(SessionRef(authority.profile_id, sid), authority.instance_id, authority.epoch,
-                                   row['runtime_revision'], row['runtime_generation'], state)
-            entries.append(LiveEntry(sid, live, handle, row, masked,
-                                     closed_idle_unviewed(live, state, row['target_ended_at'])))
+            # A detach/handoff can change ownership during the await. A history mount's stored
+            # binding rides the same off-loop batch, never a per-session SQLite read on the loop.
+            if not _readable(authority, actor, sid, history_binding=row['history_binding']):
+                continue
+            with live.event_stream.lock:
+                masked = _masked_pending(live, pending.get(sid, []))
+                state = _execution_state(masked)
+                handle = SessionHandle(SessionRef(authority.profile_id, sid), authority.instance_id, authority.epoch,
+                                       row['runtime_revision'], row['runtime_generation'], state)
+                entries.append(LiveEntry(sid, live, handle, row, masked,
+                                         closed_idle_unviewed(live, state, row['target_ended_at'])))
     return entries

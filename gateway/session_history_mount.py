@@ -17,12 +17,13 @@ from hermes_state_runtime import RuntimeStoreError
 _ROUTE_PREFIX = 'history:'
 
 
-def _reader(authority, actor, sid):
+def _reader(authority, actor, sid, *, binding=...):
     """The importer an import binding names, else the profile's owner: its native peer (the evidence
     legacy adoption takes) or an operator. Knowing an old id is not ownership."""
     from hermes_state_mutation_binding import binding_names, history_binding
-    with authority.db._read_ctx() as conn:
-        binding = history_binding(conn, sid)
+    if binding is ...:
+        with authority.db._read_ctx() as conn:
+            binding = history_binding(conn, sid)
     if binding is not None:
         return binding_names(binding, actor.profile_id, actor.subject)
     return ('session:operator' in actor.capabilities
@@ -73,8 +74,8 @@ def read_only():
                              detail='this stored conversation can be read but not continued; start a new chat')
 
 
-def require_history_access(authority, actor, sid, capability):
-    if not _reader(authority, actor, sid):
+def require_history_access(authority, actor, sid, capability, *, binding=...):
+    if not _reader(authority, actor, sid, binding=binding):
         raise RuntimeStoreError('not_found')
     if capability != 'session:read':
         raise read_only()

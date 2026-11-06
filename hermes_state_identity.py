@@ -96,6 +96,120 @@ def _restore_identity_columns(row: Any, msg: MutableMapping[str, Any]) -> None:
         msg[ABSORBED_MESSAGE_UIDS] = absorbed
 
 
+_NOTICE_DISPLAY_KINDS = frozenset({"process_complete", "internal_notification", "async_delegation_complete"})
+
+
+_NOTICE_COPY_COLUMNS = ("message_uid", "role", "timestamp", "display_kind", "display_metadata")
+
+
+def notification_display_copies(conn, session_id, messages):
+    """Bound provenance I/O by UID batches, including inactive originals; never query per message.
+
+    The existing UID index covers active rows only, so single-UID probes would repeatedly scan
+    the session's archive. One bounded IN query serves every candidate and its conflict fence.
+    """
+    wanted = set()
+    for msg in messages:
+        uid = msg.get(MESSAGE_UID)
+        if msg.get("role") != "user" or not isinstance(uid, str) or not uid:
+            continue
+        if msg.get("display_kind") is not None and msg["display_kind"] not in _NOTICE_DISPLAY_KINDS:
+            continue
+        wanted.add(uid)
+        wanted.update(_uid_list(_live_or_column(msg, ABSORBED_MESSAGE_UIDS, "absorbed_message_uids")))
+    copies = {}
+    uids = sorted(wanted)
+    for start in range(0, len(uids), 512):
+        batch = uids[start:start + 512]
+        placeholders = ",".join("?" for _ in batch)
+        for row in conn.execute(
+            f"SELECT {', '.join(_NOTICE_COPY_COLUMNS)} FROM messages "
+            f"WHERE session_id = ? AND message_uid IN ({placeholders})", (session_id, *batch)):
+            copies.setdefault(row[MESSAGE_UID], []).append(row)
+    return copies
+
+
+def remember_notification_display(copies, columns, values):
+    """Keep the transaction-local snapshot current with rows inserted earlier in this batch."""
+    row = dict(zip(columns, values))
+    copies.setdefault(row[MESSAGE_UID], []).append({key: row[key] for key in _NOTICE_COPY_COLUMNS})
+
+
+def _compatible_absorbed_notice(row, kind, metadata, decode_metadata):
+    from agent.context_compressor import MODEL_ONLY_DISPLAY_METADATA_KEY
+
+    if row["role"] != "user":
+        return False
+    peer_metadata = decode_metadata(row["display_metadata"])
+    if row["display_kind"] == "internal_notification" and (peer_metadata or {}).get(MODEL_ONLY_DISPLAY_METADATA_KEY) is True:
+        return True  # the producer, not the text, marks continuation scaffolding as non-human
+    return row["display_kind"] == kind and peer_metadata == metadata
+
+
+def restore_notification_display(copies, msg: MutableMapping[str, Any], decode_metadata) -> None:
+    """Recover presentation from authentic copies of the FIRST constituent, never from prompt text.
+
+    Stable UIDs name occurrences, including rewrites with changed bodies. Absorbed UIDs are only a
+    conflict fence: inheriting solely from an absorbed notice would relabel a human merge survivor.
+    Conflicting producer stamps, roles or timestamps fail closed. No payload field is changed.
+    """
+    uid = msg.get(MESSAGE_UID)
+    if msg.get("role") != "user" or not isinstance(uid, str) or not uid:
+        return
+    kind = msg.get("display_kind")
+    if kind is not None and kind not in _NOTICE_DISPLAY_KINDS:
+        return
+    rows = copies.get(uid, ())
+    stamps = []
+    for row in rows:
+        if row["role"] != "user" or (msg.get("timestamp") is not None and msg["timestamp"] != row["timestamp"]):
+            return
+        if row["display_kind"] is None:
+            continue  # missing stamps on rewritten copies are exactly what is being recovered
+        metadata = decode_metadata(row["display_metadata"])
+        if row["display_kind"] not in _NOTICE_DISPLAY_KINDS or metadata is None:
+            return
+        stamps.append((row["display_kind"], metadata, row["timestamp"]))
+    if not stamps:
+        return
+    donor_kind, donor_meta, _timestamp = stamps[0]
+    if any(stamp != stamps[0] for stamp in stamps[1:]) or (kind is not None and kind != donor_kind):
+        return
+    current = decode_metadata(msg.get("display_metadata"))
+    if msg.get("display_metadata") is not None and current is None:
+        return
+    if any(key in donor_meta and donor_meta[key] != value for key, value in (current or {}).items()):
+        return
+    for absorbed in _uid_list(_live_or_column(msg, ABSORBED_MESSAGE_UIDS, "absorbed_message_uids")):
+        if absorbed == uid:
+            return  # malformed self-absorption is not evidence
+        peers = copies.get(absorbed, ())
+        if not peers or any(not _compatible_absorbed_notice(peer, donor_kind, donor_meta, decode_metadata) for peer in peers):
+            return
+    msg["display_kind"] = donor_kind
+    msg["display_metadata"] = {**donor_meta, **(current or {})}
+
+
+def notification_display_rows(db, rows, *, session_id=None):
+    """Read-only presentation reconciliation shared by raw history and conversation projections.
+
+    Same-session indexed UID lookups on THIS store handle inactive originals too. Copy rows only;
+    neither the database nor caller-owned model messages are edited by a history read.
+    """
+    def read(conn):
+        result = [dict(row) for row in rows]
+        sessions = {}
+        for msg in result:
+            sessions.setdefault(msg.get("session_id", session_id), []).append(msg)
+        for owner, messages in sessions.items():
+            copies = notification_display_copies(conn, owner, messages)
+            for msg in messages:
+                if msg.get("role") == "user" and (msg.get("display_kind") is None or msg.get("display_metadata") is None):
+                    restore_notification_display(copies, msg, db._decode_display_metadata)
+        return result
+    return db._read_retrying_ioerr(read)
+
+
 def _stable_tool_key(row: Any) -> Optional[tuple[Any, ...]]:
     """Display-dedupe key of a tool-calling assistant row built from its stable call ids instead of the arguments a
     prune rewrites (#117750: a pruned carried-forward copy must collapse with its durable original). ``None`` for

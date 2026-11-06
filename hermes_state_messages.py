@@ -26,7 +26,7 @@ from hermes_state_compaction_display import later_tool_copy_ids, not_a_later_too
 from hermes_state_detached_results import SessionDetachedResultsMixin
 from hermes_state_todo import SessionTodoResultMixin
 from hermes_state_identity import (
-    _absorbed_uids_json, _restore_identity_columns, _stable_tool_key, _tool_call_uid_map, _tool_call_uid_or_none, _tool_call_uids_json, _uid_list)
+    _absorbed_uids_json, notification_display_copies, notification_display_rows, remember_notification_display, restore_notification_display, _restore_identity_columns, _stable_tool_key, _tool_call_uid_map, _tool_call_uid_or_none, _tool_call_uids_json, _uid_list)
 
 logger = logging.getLogger("hermes_state")  # caplog tests pin the origin module's name
 
@@ -665,7 +665,9 @@ class SessionMessagesMixin(SessionDetachedResultsMixin, SessionTodoResultMixin):
         now_ts = time.time()
         inserted = tool_calls_total = 0
         batch_tool_index: dict[str, str] = {}
+        copies = notification_display_copies(conn, session_id, messages)
         for msg in messages:
+            restore_notification_display(copies, msg, self._decode_display_metadata)
             role = msg.get("role", "unknown")
             tool_calls = _parse_tool_calls(msg.get("tool_calls"))
             message_timestamp = _coerce_timestamp(msg.get("timestamp"), now_ts)
@@ -674,8 +676,10 @@ class SessionMessagesMixin(SessionDetachedResultsMixin, SessionTodoResultMixin):
             # the live dict never disagree. Tool calls get their per-occurrence ids the same way.
             stamp_message_uid(msg)
             self._stamp_tool_call_uids(msg, tool_calls, batch_tool_index)
-            cur = conn.execute(_INSERT_MESSAGE_SQL, self._message_row_params(
-                session_id, role, msg, tool_calls, message_timestamp, keep_reasoning=role == "assistant"))
+            params = self._message_row_params(
+                session_id, role, msg, tool_calls, message_timestamp, keep_reasoning=role == "assistant")
+            cur = conn.execute(_INSERT_MESSAGE_SQL, params)
+            remember_notification_display(copies, _MESSAGE_WRITE_COLUMNS, params)
             # Keep the caller's live row aligned with the durable identity. Rows created without an explicit
             # timestamp (notably mid-turn steers) may be carried through several compaction generations; if
             # the generated timestamp exists only in SQLite, every copy receives a new identity and renders
@@ -759,6 +763,10 @@ class SessionMessagesMixin(SessionDetachedResultsMixin, SessionTodoResultMixin):
         if expected_active_ids is not None and [
                 int(row[0]) for row in conn.execute(_ACTIVE_IDS_SQL, (session_id,))] != expected_active_ids:
             raise RuntimeError("active transcript changed before the rewrite could be persisted")
+        # Destructive replacements must recover producer stamps BEFORE removing their donors.
+        copies = notification_display_copies(conn, session_id, messages)
+        for msg in messages:
+            restore_notification_display(copies, msg, self._decode_display_metadata)
         kept = kept_tool_calls = 0
         if archive_dropped:
             # Only the first len(messages)+1 live rows matter: the prefix to match plus the row whose
@@ -1417,7 +1425,8 @@ class SessionMessagesMixin(SessionDetachedResultsMixin, SessionTodoResultMixin):
             rows = self._read_all(sql, params)
             if latest:
                 rows.reverse()
-        return [self._row_to_message_dict(row, warn_context="get_messages", summary_flag=True) for row in rows]
+        return [self._row_to_message_dict(row, warn_context="get_messages", summary_flag=True)
+                for row in notification_display_rows(self, rows)]
 
     def find_pr_url_messages(self, session_ids: list[str]) -> list[dict[str, Any]]:
         """Tool results containing ``/pull/``: a deliberately loose scan, oldest-first so the caller takes the last."""
@@ -1526,7 +1535,7 @@ class SessionMessagesMixin(SessionDetachedResultsMixin, SessionTodoResultMixin):
         display = include_compacted and not include_inactive  # removed rows too: see drop_removed
         rows = self._fetch_conversation_rows(
             self._resume_lineage_ids(session_id) if include_ancestors else [session_id],
-            self._active_clause(include_inactive, include_compacted), with_session_id=False, with_compacted=display)
+            self._active_clause(include_inactive, include_compacted), with_session_id=True, with_compacted=display)
         if include_compacted:
             rows = self._dedupe_display_generations(rows, drop_removed=display)
         return self._rows_to_conversation(rows, session_id=session_id, include_ancestors=include_ancestors,
@@ -1591,7 +1600,7 @@ class SessionMessagesMixin(SessionDetachedResultsMixin, SessionTodoResultMixin):
         # Assistant rows since the last user row not yet indexed: only a result without a stored uid (an older
         # build's) needs the index, so rows this build wrote never pay for it. Indexed in order: same shadowing.
         unindexed_tool_owners: list[dict[str, Any]] = []
-        for row in rows:
+        for row in notification_display_rows(self, rows, session_id=session_id):
             content = self._loaded_view_content(row["role"], self._decode_content(row["content"]))
             # Underscore-prefixed like ``_row_id``: transports strip it before the wire; compression's
             # assembly copies strip it so rotated child handoffs still flush (_fresh_compaction_message_copy).

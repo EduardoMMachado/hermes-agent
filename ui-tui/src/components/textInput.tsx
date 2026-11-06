@@ -947,7 +947,10 @@ export function TextInput({
     // we emitted is still our own; the pending flush for the newer local
     // value converges the parent on its next timer.
     const ownEcho = self.current && (value === vRef.current || value === emittedValueRef.current)
-    self.current = false
+    // An older own echo acknowledges only that emission, not newer local keys.
+    // Keep rendering the local draft until the parent catches up; otherwise an
+    // unrelated streaming render paints the old prop over fast-echoed cells.
+    self.current = ownEcho && value !== vRef.current
 
     if (ownEcho || value === vRef.current) {
       return

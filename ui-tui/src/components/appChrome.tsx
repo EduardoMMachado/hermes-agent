@@ -907,9 +907,9 @@ export function FloatBox({ children, color }: { children: ReactNode; color: stri
   )
 }
 
-export function StickyPromptTracker({ messages, offsets, scrollRef, onChange }: StickyPromptTrackerProps) {
-  const { atBottom, bottom, top } = useViewportSnapshot(scrollRef, true)
-  const text = stickyPromptFromViewport(messages, offsets, top, bottom, atBottom)
+export function StickyPromptTracker({ messages, offsets, scrollRef, onChange, readingTop }: StickyPromptTrackerProps) {
+  const { atBottom, bottom } = useViewportSnapshot(scrollRef, true)
+  const text = stickyPromptFromViewport(messages, offsets, readingTop(), bottom, atBottom)
 
   useEffect(() => onChange(text), [onChange, text])
 
@@ -1021,6 +1021,7 @@ interface StickyPromptTrackerProps {
   messages: readonly Msg[]
   offsets: ArrayLike<number>
   onChange: (text: string) => void
+  readingTop: () => number
   scrollRef: RefObject<ScrollBoxHandle | null>
 }
 

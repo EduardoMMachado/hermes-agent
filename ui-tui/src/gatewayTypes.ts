@@ -329,6 +329,10 @@ export interface SessionStatusResponse {
 }
 
 export interface SessionCompressResponse {
+  status?: string
+  compressed?: boolean
+  message?: string
+  host_ack?: { output?: string }
   after_messages?: number
   after_tokens?: number
   before_messages?: number
@@ -337,6 +341,7 @@ export interface SessionCompressResponse {
   messages?: TranscriptMessage[]
   removed?: number
   summary?: {
+    aborted?: boolean
     headline?: string
     noop?: boolean
     note?: null | string

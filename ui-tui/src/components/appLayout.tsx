@@ -1,7 +1,7 @@
 // Importing the apps barrel registers the reference widget apps at startup.
 import '../sdk/apps/index.js'
 
-import { AlternateScreen, Box, NoSelect, ScrollBox, Text } from '@hermes/ink'
+import { AlternateScreen, Box, measureElement, NoSelect, ScrollBox, Text } from '@hermes/ink'
 import { useStore } from '@nanostores/react'
 import { Fragment, memo, type MutableRefObject, useEffect, useMemo, useRef } from 'react'
 
@@ -16,7 +16,7 @@ import { $voicePartial } from '../app/voicePartialStore.js'
 import { INLINE_MODE, NATIVE_MODE, SHOW_FPS, TERMUX_TUI_MODE } from '../config/env.js'
 import { placeholder } from '../content/placeholders.js'
 import { prevRenderedMsg } from '../domain/blockLayout.js'
-import { stickyPromptIndexFromViewport } from '../domain/viewport.js'
+import { stickyPromptIndexFromViewport, stickyPromptReadingTop } from '../domain/viewport.js'
 import { useT } from '../i18n/useT.js'
 import {
   COMPOSER_PROMPT_GAP_WIDTH,
@@ -163,6 +163,7 @@ const TranscriptPane = memo(function TranscriptPane({
   const ui = useStore($uiState)
   const T = useT()
   const petBox = useStore($petBox)
+  const readingPaneRef = useRef<Parameters<typeof measureElement>[0] | null>(null)
   const railCols = useAmbientRailWidth('left') + useAmbientRailWidth('right')
 
   // Keep transcript text clear of the floating pet, responsively:
@@ -189,14 +190,19 @@ const TranscriptPane = memo(function TranscriptPane({
     return -1
   }, [transcript.historyItems])
 
-  const contextIndex = () => {
+  const readingTop = () => {
     const scroll = transcript.scrollRef.current
 
-    return scroll ? stickyPromptIndexFromViewport(
-      transcript.historyItems, transcript.virtualHistory.offsets,
-      scroll.getScrollTop() + scroll.getPendingDelta()
-    ) : -1
+    if (!scroll) {return 0}
+    const viewportHeight = scroll.getViewportHeight()
+    const fullPaneHeight = readingPaneRef.current ? measureElement(readingPaneRef.current).height : viewportHeight
+
+    return stickyPromptReadingTop(scroll.getScrollTop() + scroll.getPendingDelta(), viewportHeight, fullPaneHeight, scroll.isSticky())
   }
+
+  const contextIndex = () => stickyPromptIndexFromViewport(
+    transcript.historyItems, transcript.virtualHistory.offsets, readingTop()
+  )
 
   // Index of the first user-role message; every later user message gets a
   // small dash above it so multi-turn transcripts visually segment by
@@ -286,7 +292,7 @@ const TranscriptPane = memo(function TranscriptPane({
   )
 
   return (
-    <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+    <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} ref={readingPaneRef}>
       {!nativeMode && status.showStickyPrompt && (
         <StickyUserPrompt
           cols={Math.max(1, composer.cols - railCols)}
@@ -298,11 +304,7 @@ const TranscriptPane = memo(function TranscriptPane({
               return
             }
 
-            const target = stickyPromptIndexFromViewport(
-              transcript.historyItems,
-              transcript.virtualHistory.offsets,
-              scroll.getScrollTop() + scroll.getPendingDelta()
-            )
+            const target = contextIndex()
 
             if (target >= 0) {
               scroll.scrollTo(transcript.virtualHistory.offsets[target] ?? 0)
@@ -342,6 +344,7 @@ const TranscriptPane = memo(function TranscriptPane({
           messages={transcript.historyItems}
           offsets={transcript.virtualHistory.offsets}
           onChange={actions.setStickyPrompt}
+          readingTop={readingTop}
           scrollRef={transcript.scrollRef}
         />
       )}

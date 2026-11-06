@@ -21,6 +21,12 @@ export const slashCmdSessionEn = {
       usage: 'usage: /busy [queue|steer|interrupt|status]'
     },
     compress: {
+      waiting: (seconds: string) => `compress — waiting for gateway result · ${seconds}s elapsed`,
+      alreadyWaiting: 'Compression already requested for this session; waiting for its result (no duplicate sent).',
+      unknownDuplicate: 'The previous compression may still be running. No duplicate sent; inspect the session history. Restart this TUI only after confirming completion before trying again.',
+      stillRunning: 'Compression is still running in the background; no completion result received yet.',
+      outcomeUnknown: (seconds: string) => `Compression result unavailable after ${seconds}s. The backend may still be running; it was not cancelled. Reload the session to inspect its history; do not blindly repeat /compress. See /logs for the cause.`,
+      waitExpired: (seconds: string) => `Compression wait expired after ${seconds}s. The backend may still be running; it was not cancelled. Reload the session to inspect its history before trying again.`,
       // {0}=message count (pre-formatted)
       compressedOne: (count: string) => `compressed ${count} message`,
       compressedOther: (count: string) => `compressed ${count} messages`,

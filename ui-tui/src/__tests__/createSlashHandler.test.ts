@@ -530,7 +530,9 @@ describe('createSlashHandler', () => {
       patchUiState({ sid: 'source', info: source, busy: false })
       let resolve!: (value: any) => void
       const rpc = vi.fn(() => new Promise<any>(done => { resolve = done }))
-      const ctx = buildCtx({ gateway: { ...buildGateway(), rpc } })
+      const gateway = buildGateway()
+      gateway.gw.request = rpc
+      const ctx = buildCtx({ gateway })
       createSlashHandler(ctx)('/compress')
       const current = { ...source, ...change }
       patchUiState({ info: current, busy: current.running, usage: { calls: 8, input: 8, output: 8, total: 16 } })
@@ -544,7 +546,9 @@ describe('createSlashHandler', () => {
     // Stale/missing snapshot versions cannot erase established authority either.
     for (const info of [undefined, { ...source, execution_generation: 1 }, { ...source, execution_epoch: 'old' }]) {
       patchUiState({ sid: 'source', info: source, busy: false })
-      const ctx = buildCtx({ gateway: { ...buildGateway(), rpc: vi.fn(async () => ({ info, messages: [] })) } })
+      const gateway = buildGateway()
+      gateway.gw.request = vi.fn(async () => ({ info, messages: [] })) as any
+      const ctx = buildCtx({ gateway })
       createSlashHandler(ctx)('/compress')
       await flush()
       expect(getUiState().info).toEqual(source)
@@ -554,7 +558,9 @@ describe('createSlashHandler', () => {
     // Ordinary metadata refresh is not a new execution; fresh partial info merges.
     patchUiState({ sid: 'source', info: source, busy: false })
     let resolve!: (value: any) => void
-    const ctx = buildCtx({ gateway: { ...buildGateway(), rpc: vi.fn(() => new Promise<any>(done => { resolve = done })) } })
+    const gateway = buildGateway()
+    gateway.gw.request = vi.fn(() => new Promise<any>(done => { resolve = done }))
+    const ctx = buildCtx({ gateway })
     createSlashHandler(ctx)('/compress')
     patchUiState({ info: { ...source, model: 'refreshed' } })
     resolve({ info: { execution_epoch: 'owner', execution_generation: 2 }, messages: [{ role: 'assistant', text: 'fresh summary' }] })

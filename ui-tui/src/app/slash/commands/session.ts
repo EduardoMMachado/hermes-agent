@@ -23,6 +23,7 @@ import { patchOverlayState } from '../../overlayStore.js'
 import { getUiState, patchUiState } from '../../uiStore.js'
 import { canonicalReasoning, canonicalUsage } from '../canonicalSessionCommands.js'
 import { runCanonicalSessionControl } from '../canonicalSessionControls.js'
+import { CompressionStillRunning, reportUncommittedCompression } from '../manualCompressionFeedback.js'
 import type { SlashCommand, SlashRunCtx } from '../types.js'
 import { usageTotalsSections } from '../usagePanel.js'
 
@@ -296,13 +297,24 @@ export const sessionCommands: SlashCommand[] = [
         return runCanonicalSessionControl('compress', arg, ctx)
       }
 
-      ctx.gateway
-        .rpc<SessionCompressResponse>('session.compress', {
+      return ctx.gateway.gw
+        .request<SessionCompressResponse>('session.compress', {
           session_id: ctx.sid,
           ...(arg ? { focus_topic: arg } : {})
         })
+        .then(r => {
+          if (r.status === 'pending') {
+            throw new CompressionStillRunning(r.message)
+          }
+
+          return r
+        })
         .then(
           ctx.guarded<SessionCompressResponse>(r => {
+            if (reportUncommittedCompression(r, ctx)) {
+              return
+            }
+
             const current = getUiState()
 
             if (isStaleCompressReply(r, current, ctx)) {

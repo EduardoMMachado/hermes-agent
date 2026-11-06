@@ -5,7 +5,7 @@ the emana machines, kept in one versioned place:
 
 | Path | What |
 |---|---|
-| `skins/vscode-modern.yaml` | VS Code "Dark Modern" skin |
+| `skins/vscode-modern.yaml` | VS Code "Dark Modern" skin with pastel accents and muted diff colors |
 | `tui-widgets/sidebar.mjs` | right side bar: pinned + recent sessions, cron jobs of every profile, live background activity, command hints (`/sidebar` toggles) |
 | `tui-widgets/pin.mjs` | `/pin [session-id]` — toggles a session's pin (same `pinned` flag as the desktop app) |
 | `tui-widgets/lib/data.mjs` | shared data layer (`state.db` read-only via `sqlite3`, `cron/jobs.json` of every profile) |
@@ -28,6 +28,10 @@ Visibility uses exact viewport coordinates, not the general eight-row buckets.
 All lines, blank lines and indentation are preserved, including pasted input
 whose composer label is compact. If the request exceeds the available reading
 space, its own scroll viewport exposes all of it without hiding the conversation.
+While following the response tail, the reading anchor excludes the band's own
+height. This prevents repeated showing and hiding when a later human message is
+already visible. Manual scrolling still follows the actual viewport; the band and its click
+target use the same reading anchor.
 
 User and assistant messages show local date and time down to seconds. Persisted
 timestamps are retained when reopening a session; live blocks use their first
@@ -38,6 +42,13 @@ Background completions and internal notifications keep their system-event origin
 both live and after reopening history. Queued inputs use the owner's display
 metadata matched by admission ID, never a guess based on their text. These events
 do not replace the pinned human request; quoting a notification remains human input.
+
+Manual `/compress` reports waiting immediately and shows real elapsed waiting
+every 30 seconds. Its RPC budget is 660 seconds, matching the CLI and Desktop;
+ordinary RPC deadlines are unchanged. Repeating the command while awaiting its
+reply does not submit another compression. A transport timeout means the result
+is unknown, not cancelled. For a legacy connection without a queryable receipt,
+confirm completion before reopening the TUI to release that local duplicate guard.
 
 Each weekly account quota includes the provider's renewal date, time and local
 UTC offset. Unknown reset timestamps are displayed as unavailable, not guessed.

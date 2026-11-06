@@ -22,6 +22,7 @@ import {
 import type { AnyGatewayEvent } from './gatewayTypes.js'
 import { t } from './i18n/runtime.js'
 import { CircularBuffer } from './lib/circularBuffer.js'
+import { COMPRESSION_RPC_TIMEOUT_MS, isCompressionRequest } from './lib/compressionRpc.js'
 import { recordParentLifecycle } from './lib/parentLog.js'
 import { bootstrapLocalGateway, isTerminalBootstrapFailure, type LocalGatewayGrant } from './localGatewayBootstrap.js'
 
@@ -893,8 +894,17 @@ export class GatewayClient extends EventEmitter {
   }
 
   private requestOverWebSocket<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
+    const compression = isCompressionRequest(method, params)
+    const budget = timeoutMs ?? (compression ? COMPRESSION_RPC_TIMEOUT_MS : undefined)
+
     return this.ensureAttachedWebSocket(method).then(() =>
-      this.channel.request<T>(method, params, timeoutMs, undefined, () => this.notConnected(method)))
+      this.channel.request<T>(method, params, budget, undefined, () => this.notConnected(method))).catch(error => {
+      if (compression && error instanceof Error && error.message.startsWith('request timed out after ')) {
+        throw new Error(t('slashCmd.session.compress.waitExpired', String(Math.round((budget ?? COMPRESSION_RPC_TIMEOUT_MS) / 1000))))
+      }
+
+      throw error
+    })
   }
 
   request<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {

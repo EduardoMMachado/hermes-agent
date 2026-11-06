@@ -8,6 +8,7 @@ import { getWidgetApp } from '../sdk/registry.js'
 
 import type { SlashHandler, SlashHandlerContext, SlashSubmission } from './interfaces.js'
 import { scoreSlashMenuItem } from './slash/fuzzyScore.js'
+import { compressionAlreadyWaiting, runWithCompressionFeedback } from './slash/manualCompressionFeedback.js'
 import { findSlashCommand } from './slash/registry.js'
 import type { SlashRunCtx } from './slash/types.js'
 import { captureDestination, isCurrentDestination } from './submissionDestination.js'
@@ -65,11 +66,14 @@ export function createSlashHandler(ctx: SlashHandlerContext): SlashHandler {
   const { page, send, sys } = ctx.transcript
 
   const handler = (cmd: string, submission?: SlashSubmission, typed = true): boolean => {
+    const parsed = parseSlashCommand(cmd)
+    const destination = captureDestination()
+
+    if (parsed.name === 'compress' && compressionAlreadyWaiting(ctx, destination)) { return true }
+
     const flight = ++ctx.slashFlightRef.current
     const ui = getUiState()
     const sid = ui.sid
-    const destination = captureDestination()
-    const parsed = parseSlashCommand(cmd)
     const argTail = parsed.arg ? ` ${parsed.arg}` : ''
 
     const countTyped = () => {
@@ -101,7 +105,13 @@ export function createSlashHandler(ctx: SlashHandlerContext): SlashHandler {
     if (found) {
       countTyped()
       // A programmatic call (a picker's re-issue, an alias re-dispatch) is not the user's command.
-      found.run(parsed.arg, typed ? { ...runCtx, ran: observer(gw, parsed.name, parsed.arg, sid) } : runCtx, cmd)
+      const owned = typed ? { ...runCtx, ran: observer(gw, parsed.name, parsed.arg, sid) } : runCtx
+
+      if (found.name === 'compress' && sid) {
+        runWithCompressionFeedback(owned, compressionCtx => found.run(parsed.arg, compressionCtx, cmd))
+      } else {
+        found.run(parsed.arg, owned, cmd)
+      }
 
       return true
     }

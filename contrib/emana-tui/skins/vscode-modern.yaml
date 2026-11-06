@@ -8,16 +8,16 @@ colors:
   background: "#1f1f1f"
 
   # Headings, links, inline code — VS Code textLink.foreground
-  ui_accent: "#4daafc"
-  banner_accent: "#4daafc"
+  ui_accent: "#9DBAD8"
+  banner_accent: "#9DBAD8"
   # Tool markers (●) — Dark+ teal, to set them apart from headings
-  ui_tool: "#4ec9b0"
+  ui_tool: "#A4C9BD"
   # Reasoning: strongly receded, like ghost comments
   ui_thinking: "#6e7681"
 
   # Primary: active bar, card borders, highlight
   banner_title: "#ffffff"
-  ui_primary: "#3794ff"
+  ui_primary: "#A4BDD8"
   banner_text: "#cccccc"
   ui_text: "#cccccc"
   ui_label: "#e7e7e7"
@@ -25,13 +25,13 @@ colors:
   banner_border: "#2b2b2b"
   ui_border: "#2b2b2b"
 
-  ui_ok: "#89d185"
-  ui_warn: "#cca700"
-  ui_error: "#f14c4c"
+  ui_ok: "#B0C7A7"
+  ui_warn: "#D2C29C"
+  ui_error: "#D4A3A8"
 
-  prompt: "#4daafc"
-  shell_dollar: "#4ec9b0"
-  input_rule: "#0078d4"
+  prompt: "#9DBAD8"
+  shell_dollar: "#A4C9BD"
+  input_rule: "#728BA4"
   response_border: "#2b2b2b"
   selection_bg: "#264f78"
 
@@ -39,22 +39,22 @@ colors:
   status_bar_text: "#9d9d9d"
   status_bar_strong: "#e7e7e7"
   status_bar_dim: "#6e7681"
-  status_bar_good: "#89d185"
-  status_bar_warn: "#cca700"
-  status_bar_bad: "#f14c4c"
-  status_bar_critical: "#f14c4c"
+  status_bar_good: "#B0C7A7"
+  status_bar_warn: "#D2C29C"
+  status_bar_bad: "#D4A3A8"
+  status_bar_critical: "#D4A3A8"
   session_label: "#9d9d9d"
   session_border: "#2b2b2b"
 
-  diff_added: "#2ea043"
-  diff_removed: "#f85149"
-  diff_added_word: "#56d364"
-  diff_removed_word: "#ffa198"
+  diff_added: "#283B34"
+  diff_removed: "#432E34"
+  diff_added_word: "#B5CEBE"
+  diff_removed_word: "#D8B5BC"
 
-  syntax_string: "#ce9178"
-  syntax_number: "#b5cea8"
-  syntax_keyword: "#569cd6"
-  syntax_comment: "#6a9955"
+  syntax_string: "#CFB3A1"
+  syntax_number: "#B9C7AA"
+  syntax_keyword: "#A4B8D1"
+  syntax_comment: "#859784"
 
   completion_menu_bg: "#202020"
   completion_menu_current_bg: "#04395e"

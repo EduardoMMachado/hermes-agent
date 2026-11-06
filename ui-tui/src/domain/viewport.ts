@@ -1,5 +1,10 @@
 import type { Msg } from '../types.js'
 
+/** While following the bottom, the banner must not move its own reading anchor. */
+export const stickyPromptReadingTop = (
+  top: number, viewportHeight: number, fullPaneHeight: number, followingBottom: boolean
+) => Math.max(0, top - (followingBottom ? Math.max(0, fullPaneHeight - viewportHeight) : 0))
+
 
 /** The request owning the visible context, not the globally latest request. */
 export const stickyPromptIndexFromViewport = (

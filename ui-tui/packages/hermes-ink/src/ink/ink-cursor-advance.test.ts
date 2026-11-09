@@ -3,7 +3,9 @@ import { EventEmitter } from 'events'
 import React from 'react'
 import { describe, expect, it } from 'vitest'
 
+import Box from './components/Box.js'
 import Text from './components/Text.js'
+import type { DOMElement } from './dom.js'
 import Ink from './ink.js'
 
 class FakeTty extends EventEmitter {
@@ -42,6 +44,7 @@ type InkPrivate = {
   displayCursor: { x: number; y: number } | null
   cursorDeclaration: { node: unknown; relativeX: number; relativeY: number } | null
   frontFrame: { cursor: { x: number; y: number } }
+  isExternalCursorReady: () => boolean
 }
 const peek = (ink: Ink): InkPrivate => ink as unknown as InkPrivate
 
@@ -54,6 +57,53 @@ const peek = (ink: Ink): InkPrivate => ink as unknown as InkPrivate
 // from the actual caret — visible as "extra whitespace between my last
 // typed character and the cursor block".
 describe('Ink.noteExternalCursorAdvance', () => {
+  it.each([false, true])('only permits bypass after the declared caret is painted (alt=%s)', alt => {
+    const { ink, stdout } = makeInk()
+    ink.setAltScreenActive(alt)
+    let node: DOMElement | null = null
+    ink.render(
+      React.createElement(
+        Box,
+        {
+          ref: (el: DOMElement | null) => {
+            node = el
+          }
+        },
+        React.createElement(Text, null, 'abcd')
+      )
+    )
+    ink.onRender()
+
+    const declare = (
+      ink as unknown as {
+        setCursorDeclaration: (d: { node: DOMElement; relativeX: number; relativeY: number } | null) => void
+      }
+    ).setCursorDeclaration
+
+    expect(peek(ink).isExternalCursorReady()).toBe(false)
+    declare({ node: node!, relativeX: 1, relativeY: 0 })
+    // A layout-effect declaration is ahead of the throttled terminal paint.
+    expect(peek(ink).isExternalCursorReady()).toBe(false)
+    expect(ink.noteExternalCursorAdvance.prepare?.()).toBe(true)
+    expect(peek(ink).isExternalCursorReady()).toBe(true)
+    ink.noteExternalCursorAdvance(1)
+    expect(peek(ink).isExternalCursorReady()).toBe(true)
+    // React catching up to our raw echo must not disable the next bypass.
+    declare({ node: node!, relativeX: 2, relativeY: 0 })
+    expect(peek(ink).isExternalCursorReady()).toBe(true)
+    declare({ node: node!, relativeX: 3, relativeY: 0 })
+    expect(peek(ink).isExternalCursorReady()).toBe(false)
+    expect(ink.noteExternalCursorAdvance.prepare?.()).toBe(true)
+    expect(peek(ink).isExternalCursorReady()).toBe(true)
+    const paintedChunks = stdout.chunks.length
+    expect(ink.noteExternalCursorAdvance.prepare?.()).toBe(true)
+    expect(stdout.chunks).toHaveLength(paintedChunks)
+    declare(null)
+    expect(ink.noteExternalCursorAdvance.prepare?.()).toBe(false)
+    expect(peek(ink).isExternalCursorReady()).toBe(false)
+    ink.unmount()
+  })
+
   it('seeds displayCursor from frontFrame.cursor when nothing was parked', () => {
     const { ink } = makeInk()
 

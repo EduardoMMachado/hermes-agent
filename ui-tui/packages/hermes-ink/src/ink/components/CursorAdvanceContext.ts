@@ -28,7 +28,10 @@ import { createContext } from 'react'
  * negative = left/up). The caller is responsible for ensuring the
  * physical cursor really did move by that amount.
  */
-export type CursorAdvanceNotifier = (dx: number, dy?: number) => void
+export type CursorAdvanceNotifier = ((dx: number, dy?: number) => void) & {
+  /** Paint a pending caret baseline before bypassing Ink; false if none is active. */
+  prepare?: () => boolean
+}
 
 const CursorAdvanceContext = createContext<CursorAdvanceNotifier>(() => {})
 

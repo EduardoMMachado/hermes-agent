@@ -19,7 +19,7 @@ import { isTermuxTuiMode } from '../lib/termux.js'
 type InkExt = typeof Ink & {
   colorize: (str: string, color: string | undefined, type: 'foreground' | 'background') => string
   stringWidth: (s: string) => number
-  useCursorAdvance: () => (dx: number, dy?: number) => void
+  useCursorAdvance: () => ((dx: number, dy?: number) => void) & { prepare?: () => boolean }
   useDeclaredCursor: (a: { line: number; column: number; active: boolean }) => (el: any) => void
   useStdout: () => { stdout?: NodeJS.WriteStream }
   useTerminalFocus: () => boolean
@@ -1123,8 +1123,17 @@ export function TextInput({
   }
 
   const canFastEchoBase = () =>
-    supportsFastEchoTerminal() && focus && termFocus && !selected && !mask && !!stdout?.isTTY
+    supportsFastEchoTerminal() &&
+    focus &&
+    termFocus &&
+    !selected &&
+    !mask &&
+    !!stdout?.isTTY &&
+    // A React commit can declare a caret before the throttled frame parks it.
+    // Ask Ink to establish that baseline before writing into the old cursor's gutter.
+    noteCursorAdvance.prepare?.() !== false
 
+  // A streaming commit can move this input before the parent catches up.
   const canFastAppend = (current: string, cursor: number, text: string) =>
     canFastEchoBase() &&
     canFastAppendShape(current, cursor, text, columns, lineWidthRef.current) &&
@@ -1745,7 +1754,7 @@ export function TextInput({
               // setCur/setParent flush parks the cursor text.length cells
               // too far right (#cursor-drift).
               noteCursorAdvance(effect.advanceDelta)
-              commit(v, c, true, false, false, lineWidthRef.current + stringWidth(text))
+              commit(v, c, true, false, true, lineWidthRef.current + stringWidth(text))
 
               return
             }

@@ -20,8 +20,11 @@ import CursorAdvanceContext, { type CursorAdvanceNotifier } from '../components/
  *     The next React commit that publishes a fresh declaration
  *     supersedes the bump.
  *
- * The caller is responsible for the stdout write itself; this hook
- * only reports the resulting cursor delta. Pass `dx` and optional
+ * The caller owns the stdout write. Call `prepare?.()` before a bypass:
+ * it paints a pending cursor declaration using Ink's normal frame path and
+ * returns false when no usable caret baseline exists. Declaring a cursor in
+ * a layout effect alone does not mean a throttled frame has parked it yet.
+ * After the write, pass `dx` and optional
  * `dy` in terminal cells (positive = moved right/down, negative =
  * moved left/up).
  *

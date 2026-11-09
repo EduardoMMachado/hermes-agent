@@ -1,6 +1,6 @@
 import { Box, ScrollBox, type ScrollBoxHandle, Text, useStdout, wrapAnsi } from '@hermes/ink'
 import { mix } from '@hermes/shared/color'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import type { Theme } from '../theme.js'
 
@@ -20,11 +20,20 @@ export interface StickyUserPromptProps {
 export function StickyUserPrompt({ cols, createdAt, onJump, t, text, timestamps }: StickyUserPromptProps) {
   const { stdout } = useStdout()
   const scrollRef = useRef<null | ScrollBoxHandle>(null)
-  const rows = wrapAnsi(text, Math.max(1, cols - 2), { hard: true, trim: false }).split('\n').length
+
+  // Scrolling/streaming re-renders the parent without changing the request.
+  // Re-wrapping a full long request on each tick monopolizes the input thread.
+  const rows = useMemo(
+    () => wrapAnsi(text, Math.max(1, cols - 2), { hard: true, trim: false }).split('\n').length,
+    [text, cols]
+  )
+
   const visibleRows = Math.min(rows, Math.max(1, Math.floor((stdout?.rows ?? 24) * 0.4)))
   const overflow = rows > visibleRows
 
-  useEffect(() => { scrollRef.current?.scrollTo(0) }, [text])
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0)
+  }, [text])
 
   if (!text) {
     return null
@@ -48,9 +57,13 @@ export function StickyUserPrompt({ cols, createdAt, onJump, t, text, timestamps 
       </ScrollBox>
       {overflow && (
         <Box flexDirection="row">
-          <Box onClick={() => scrollRef.current?.scrollBy(-5)}><Text color={t.color.accent}> ↑ </Text></Box>
+          <Box onClick={() => scrollRef.current?.scrollBy(-5)}>
+            <Text color={t.color.accent}> ↑ </Text>
+          </Box>
           <Text color={t.color.muted}>rolar mensagem completa</Text>
-          <Box onClick={() => scrollRef.current?.scrollBy(5)}><Text color={t.color.accent}> ↓ </Text></Box>
+          <Box onClick={() => scrollRef.current?.scrollBy(5)}>
+            <Text color={t.color.accent}> ↓ </Text>
+          </Box>
         </Box>
       )}
     </Box>

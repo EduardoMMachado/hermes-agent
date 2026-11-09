@@ -19,6 +19,7 @@ import App from './components/App.js'
 import type { CursorAdvanceNotifier } from './components/CursorAdvanceContext.js'
 import type { CursorDeclaration, CursorDeclarationSetter } from './components/CursorDeclarationContext.js'
 import { FRAME_INTERVAL_MS, MAX_COALESCED_BACKPRESSURE_FRAMES } from './constants.js'
+import { advanceCursorBaseline, getPaintedCursorDeclaration, hasPaintedCursor } from './cursor-advance-state.js'
 import * as dom from './dom.js'
 import { markDirty } from './dom.js'
 import { KeyboardEvent } from './events/keyboard-event.js'
@@ -1175,7 +1176,7 @@ export default class Ink {
           }
         }
 
-        this.displayCursor = target
+        this.recordCursorPaint(target, decl, terminalWidth, terminalRows)
       } else {
         // Declaration cleared (input blur, unmount). Restore physical cursor
         // to frame.cursor before forgetting the park position — otherwise
@@ -2386,6 +2387,26 @@ export default class Ink {
   private writeRaw(data: string): void {
     this.options.stdout.write(data)
   }
+  private paintedCursorDeclaration: typeof this.cursorDeclaration = null
+
+  private recordCursorPaint(target: { x: number; y: number }, declaration: CursorDeclaration | null, width: number, rows: number): void {
+    this.displayCursor = target
+    this.paintedCursorDeclaration = getPaintedCursorDeclaration(declaration, target, this.altScreenActive, width, rows)
+  }
+
+  private isExternalCursorReady = (): boolean =>
+    hasPaintedCursor(this.displayCursor, this.paintedCursorDeclaration, this.cursorDeclaration)
+
+  private prepareExternalCursor = (): boolean => {
+    if (!this.isExternalCursorReady() && this.cursorDeclaration !== null) {
+      // Flush the pending frame, not an arbitrary delay: raw echo needs the
+      // committed declaration's physical baseline before it can bypass Ink.
+      this.onRender()
+    }
+
+    return this.isExternalCursorReady()
+  }
+
   private setCursorDeclaration: CursorDeclarationSetter = (decl, clearIfNode) => {
     if (decl === null && clearIfNode !== undefined && this.cursorDeclaration?.node !== clearIfNode) {
       return
@@ -2393,85 +2414,24 @@ export default class Ink {
 
     this.cursorDeclaration = decl
   }
-  // Caller writes raw bytes to stdout that move the physical terminal
-  // cursor (e.g. TextInput's fast-echo bypass). Without this notification,
-  // Ink's `displayCursor` cache and log-update's prevFrame.cursor stay
-  // unchanged, so the next frame's relative cursor moves compute from a
-  // stale position and the hardware cursor parks `dx` cells offset from
-  // the actual caret. Visible symptom: extra whitespace between the just-
-  // typed character and the cursor block, more pronounced on long
-  // sessions where unrelated components re-render between fast-echo and
-  // the deferred composer re-render.
-  //
-  // If displayCursor was already tracked, just bump it. Otherwise seed it
-  // to (prevFrame.cursor + delta) so the next frame's preamble emits a
-  // (-dx, -dy) relative move that brings the cursor back to log-update's
-  // expected start position before the diff body runs.
-  //
-  // Public so tests can drive it directly without mounting App.
-  //
-  // Bumps BOTH `displayCursor` (used by log-update's relative-move
-  // preamble) AND, if non-null, `cursorDeclaration.relativeX/Y` (the
-  // target the cursor parks at after every frame). Advancing only one
-  // of the two would leave the other stale: e.g. if the deferred React
-  // `setCur` hasn't flushed yet, the next unrelated re-render would
-  // re-compute `target` from the stale declaration and park the
-  // hardware cursor back at the old caret column. We advance both so
-  // the fast-echo is invisible to intervening frames until React
-  // catches up.
-  noteExternalCursorAdvance: CursorAdvanceNotifier = (dx, dy = 0) => {
-    if (dx === 0 && dy === 0) {
-      return
-    }
+  // Raw echo must advance both the diff's physical baseline and the declared
+  // caret; advancing only one lets the next frame undo the user's keystroke.
+  noteExternalCursorAdvance: CursorAdvanceNotifier = Object.assign(
+    (dx: number, dy = 0) => {
+      const next = advanceCursorBaseline({
+        alternate: this.altScreenActive,
+        declaration: this.cursorDeclaration,
+        painted: this.paintedCursorDeclaration,
+        parked: this.displayCursor,
+        frameCursor: this.frontFrame.cursor
+      }, dx, dy)
 
-    // displayCursor / log-update relative-move basis only matters on
-    // main screen — alt-screen frames begin with absolute CSI H every
-    // frame so the next preamble naturally resets to (0,0). cursorDeclaration,
-    // however, IS still consulted on alt-screen — onRender's park branch
-    // emits an absolute CUP using `rect.x + decl.relativeX`, so a stale
-    // declaration in the deferred-setCur window would park the cursor
-    // at the pre-keystroke caret. We therefore skip ONLY the displayCursor
-    // half on alt-screen, not the declaration half.
-    if (!this.altScreenActive) {
-      if (this.displayCursor !== null) {
-        this.displayCursor = {
-          x: this.displayCursor.x + dx,
-          y: this.displayCursor.y + dy
-        }
-      } else {
-        // No prior parked position. Seed from frontFrame.cursor (where
-        // log-update parked the cursor at the end of the last frame) so
-        // the next preamble's relative move correctly cancels the
-        // external advance.
-        const baseX = this.frontFrame.cursor.x
-        const baseY = this.frontFrame.cursor.y
-        this.displayCursor = { x: baseX + dx, y: baseY + dy }
-      }
-    }
-
-    // Also advance the active cursor declaration if any. Without this,
-    // a TextInput that defers its React `cur` state update (16ms timer
-    // in textInput.tsx — perf optimization that batches re-renders
-    // during heavy typing) leaves `cursorDeclaration.relativeX` pointing
-    // at the pre-keystroke caret column. If an unrelated component
-    // re-renders before the deferred `setCur` flushes, the cursor-park
-    // branch at the end of onRender would move the hardware cursor back
-    // to that stale relativeX and visually undo the fast-echo's
-    // advance. Bumping relativeX here keeps the declared target in
-    // lock-step with the physical cursor until React state catches up.
-    // Applies to BOTH main-screen and alt-screen — the alt-screen park
-    // branch uses an absolute CUP to (rect.x + decl.relativeX), so a
-    // stale declaration there would still produce the wrong column.
-    const decl = this.cursorDeclaration
-
-    if (decl !== null) {
-      this.cursorDeclaration = {
-        node: decl.node,
-        relativeX: decl.relativeX + dx,
-        relativeY: decl.relativeY + dy
-      }
-    }
-  }
+      this.displayCursor = next.parked
+      this.cursorDeclaration = next.declaration
+      this.paintedCursorDeclaration = next.painted
+    },
+    { prepare: this.prepareExternalCursor }
+  )
   render(node: ReactNode): void {
     this.currentNode = node
 

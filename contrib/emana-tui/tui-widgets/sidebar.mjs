@@ -7,6 +7,7 @@
 import { SOURCE_ICON, ago, fit, usePoll, when } from './lib/data.mjs'
 // Version the dependency when its API changes: the widget host reloads only top-level modules.
 import { formatQuotaReset, useWeeklyUsage } from './lib/quota.mjs?v=2'
+import { formatMonth, formatUsd, useGeminiSpend } from './lib/gemini.mjs?v=1'
 
 const W = 42 // colunas reservadas pelo rail (host usa paddingX 1 → card = W - 2)
 const CARD = W - 2
@@ -177,6 +178,21 @@ export default function register(sdk) {
     )
   }
 
+  // Metered, so a month's spend instead of a weekly window; labelled as an estimate on screen.
+  function GeminiSpend({ t }) {
+    const spend = useGeminiSpend(React)
+    const valid = typeof spend.usd === 'number'
+    const note = !valid ? 'sem leitura'
+      : spend.unpriced ? `${spend.unpriced} run(s) sem preço, fora do total`
+      : `estimativa por tokens · ${spend.runs} ${spend.runs === 1 ? 'run' : 'runs'}`
+    return h(Box, { flexDirection: 'column' },
+      h(Box, { flexDirection: 'row' },
+        h(Text, { color: t.color.text }, 'Gemini'.padEnd(8)),
+        h(Text, { color: valid ? t.color.accent : t.color.muted }, valid ? formatUsd(spend.usd) : '—'),
+        h(Text, { color: t.color.muted }, ' em ' + formatMonth(spend.month))),
+      h(Text, { color: spend.unpriced ? t.color.warn : t.color.muted }, fit(note, INNER).trimEnd()))
+  }
+
   // Footer hints; clicking runs the command. Bare /model opens the session's model picker.
   function WeeklyQuota({ t }) {
     const usage = useWeeklyUsage(React)
@@ -196,8 +212,9 @@ export default function register(sdk) {
     })
     return h(Box, { flexDirection: 'column', flexShrink: 0 },
       h(Text, { color: t.color.border }, '─'.repeat(INNER)),
-      h(Text, { bold: true, color: t.color.label }, 'CONSUMO SEMANAL · CONTA'),
-      ...rows)
+      h(Text, { bold: true, color: t.color.label }, 'CONSUMO DE LLM · CONTA'),
+      ...rows,
+      h(GeminiSpend, { t }))
   }
 
   const HINTS = [

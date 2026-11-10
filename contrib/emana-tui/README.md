@@ -10,6 +10,7 @@ the emana machines, kept in one versioned place:
 | `tui-widgets/pin.mjs` | `/pin [session-id]` — toggles a session's pin (same `pinned` flag as the desktop app) |
 | `tui-widgets/lib/data.mjs` | shared data layer (`state.db` read-only via `sqlite3`, `cron/jobs.json` of every profile) |
 | `tui-widgets/lib/quota.mjs` | Claude/Codex account-wide weekly quota via `hermes usage --json --read-only`; shared five-minute cache, failures shown as unavailable |
+| `tui-widgets/lib/gemini.mjs` | this month's Gemini (Vertex) spend of the emana pipeline, an ESTIMATE from agy tokens x list price computed by `emana-brain/scripts/despachante/gemini_spend.py`; shared five-minute cache, failures shown as unavailable |
 | `tui-widgets/disabled/tabs.mjs` | tab bar + breadcrumbs (`header` zone), off; move it up a level and fix its import to enable |
 | `install.sh` | links the above into `$HERMES_HOME` and sets the `display.*` keys |
 
@@ -52,6 +53,11 @@ confirm completion before reopening the TUI to release that local duplicate guar
 
 Each weekly account quota includes the provider's renewal date, time and local
 UTC offset. Unknown reset timestamps are displayed as unavailable, not guessed.
+
+Gemini is billed per use, so its row shows the calendar month's spend instead of a
+weekly window. It is labelled as an estimate: the pipeline's agy runs priced at the
+Vertex list price, without Gemini used outside the pipeline, taxes or credits.
+Google's invoice is the source of truth.
 
 ## Install / update
 

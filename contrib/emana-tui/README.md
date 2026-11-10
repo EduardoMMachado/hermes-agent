@@ -10,7 +10,7 @@ the emana machines, kept in one versioned place:
 | `tui-widgets/pin.mjs` | `/pin [session-id]` — toggles a session's pin (same `pinned` flag as the desktop app) |
 | `tui-widgets/lib/data.mjs` | shared data layer (`state.db` read-only via `sqlite3`, `cron/jobs.json` of every profile) |
 | `tui-widgets/lib/quota.mjs` | Claude/Codex account-wide weekly quota via `hermes usage --json --read-only`; shared five-minute cache, failures shown as unavailable |
-| `tui-widgets/lib/gemini.mjs` | this month's Gemini (Vertex) spend of the emana pipeline, an ESTIMATE from agy tokens x list price computed by `emana-brain/scripts/despachante/gemini_spend.py`; shared five-minute cache, failures shown as unavailable |
+| `tui-widgets/lib/gemini.mjs` | this month's Gemini (Vertex) cost in `emana-ai-dev` in BRL: Google's own token counts (Cloud Monitoring) x the catalog list price, computed by `emana-brain/scripts/despachante/gemini_spend.py`; shared five-minute cache, a failed reading shows its reason |
 | `tui-widgets/lib/pipeline.mjs` | the emana pipeline's running agents (role, card, time on it) from `emana-brain/scripts/despachante/pipeline_agents.py`, polled every 20 s; a vanished process (✕) or expired lease (◷) is shown, a failed read is unavailable |
 | `tui-widgets/disabled/tabs.mjs` | tab bar + breadcrumbs (`header` zone), off; move it up a level and fix its import to enable |
 | `install.sh` | links the above into `$HERMES_HOME` and sets the `display.*` keys |
@@ -55,10 +55,11 @@ confirm completion before reopening the TUI to release that local duplicate guar
 Each weekly account quota includes the provider's renewal date, time and local
 UTC offset. Unknown reset timestamps are displayed as unavailable, not guessed.
 
-Gemini is billed per use, so its row shows the calendar month's spend instead of a
-weekly window. It is labelled as an estimate: the pipeline's agy runs priced at the
-Vertex list price, without Gemini used outside the pipeline, taxes or credits.
-Google's invoice is the source of truth.
+Gemini is billed per use, so its row shows the calendar month's cost instead of a
+weekly window: every Gemini call of the project as Google counted it, at the BRL
+catalog list price. Taxes and credits (the introductory 50% comes back as one) are
+not included; Google's invoice is the source of truth. It reads a key of the
+read-only `custo-gemini` service account from the login Keychain.
 
 ## Install / update
 

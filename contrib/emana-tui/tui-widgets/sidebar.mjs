@@ -7,7 +7,7 @@
 import { SOURCE_ICON, ago, fit, usePoll, when } from './lib/data.mjs'
 // Version the dependency when its API changes: the widget host reloads only top-level modules.
 import { formatQuotaReset, useWeeklyUsage } from './lib/quota.mjs?v=2'
-import { formatMonth, formatUsd, useGeminiSpend } from './lib/gemini.mjs?v=1'
+import { formatBrl, formatMonth, useGeminiSpend } from './lib/gemini.mjs?v=2'
 import { ROLE, onCard, usePipelineAgents } from './lib/pipeline.mjs?v=1'
 
 const W = 42 // colunas reservadas pelo rail (host usa paddingX 1 → card = W - 2)
@@ -205,19 +205,19 @@ export default function register(sdk) {
     )
   }
 
-  // Metered, so a month's spend instead of a weekly window; labelled as an estimate on screen.
+  // Metered, so a month's cost instead of a weekly window: Google's tokens at the catalog list price.
   function GeminiSpend({ t }) {
     const spend = useGeminiSpend(React)
-    const valid = typeof spend.usd === 'number'
-    const note = !valid ? 'sem leitura'
-      : spend.unpriced ? `${spend.unpriced} run(s) sem preço, fora do total`
-      : `estimativa por tokens · ${spend.runs} ${spend.runs === 1 ? 'run' : 'runs'}`
+    const valid = typeof spend.brl === 'number'
+    const note = !valid ? spend.error || 'sem leitura'
+      : spend.unpriced.length ? `${spend.unpriced.length} modelo(s) sem preço, fora`
+      : 'preço de lista · sem impostos'
     return h(Box, { flexDirection: 'column' },
       h(Box, { flexDirection: 'row' },
         h(Text, { color: t.color.text }, 'Gemini'.padEnd(8)),
-        h(Text, { color: valid ? t.color.accent : t.color.muted }, valid ? formatUsd(spend.usd) : '—'),
+        h(Text, { color: valid ? t.color.accent : t.color.muted }, valid ? formatBrl(spend.brl) : '—'),
         h(Text, { color: t.color.muted }, ' em ' + formatMonth(spend.month))),
-      h(Text, { color: spend.unpriced ? t.color.warn : t.color.muted }, fit(note, INNER).trimEnd()))
+      h(Text, { color: !valid || spend.unpriced.length ? t.color.warn : t.color.muted }, fit(note, INNER).trimEnd()))
   }
 
   // Footer hints; clicking runs the command. Bare /model opens the session's model picker.

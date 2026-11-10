@@ -8,6 +8,7 @@ import { SOURCE_ICON, ago, fit, usePoll, when } from './lib/data.mjs'
 // Version the dependency when its API changes: the widget host reloads only top-level modules.
 import { formatQuotaReset, useWeeklyUsage } from './lib/quota.mjs?v=2'
 import { formatMonth, formatUsd, useGeminiSpend } from './lib/gemini.mjs?v=1'
+import { ROLE, onCard, usePipelineAgents } from './lib/pipeline.mjs?v=1'
 
 const W = 42 // colunas reservadas pelo rail (host usa paddingX 1 → card = W - 2)
 const CARD = W - 2
@@ -86,6 +87,31 @@ export default function register(sdk) {
     )
   }
 
+  // Pipeline agents: role, card, time on it. A claim is not proof its worker runs,
+  // so a vanished process (✕) or an expired lease (◷) is shown, not hidden.
+  function PipelineSection({ t }) {
+    const { agents, now, loading } = usePipelineAgents(React)
+    const muted = (s, key) => h(Text, { key, color: t.color.muted }, s)
+    let rows
+    if (loading) rows = [muted('  carregando…', 'l')]
+    else if (!agents) rows = [muted('  sem leitura do despachante', 'u')]
+    else if (!agents.length) rows = [muted('  Nenhum agente rodando', 'n')]
+    else
+      rows = agents.map(a => {
+        const [glyph, tone] = a.alive === false ? ['✕', 'error'] : a.stale ? ['◷', 'warn'] : ['●', 'ok']
+        const time = onCard(a.since, now).padStart(6)
+        return h(
+          Box,
+          { key: a.card + a.role, flexDirection: 'row' },
+          h(Text, { color: t.color[tone] }, ` ${glyph} `),
+          h(Text, { color: t.color.text }, fit(ROLE[a.role] || a.role, 10).padEnd(10)),
+          h(Text, { color: t.color.accent }, fit(a.card, INNER - 3 - 10 - time.length).padEnd(INNER - 3 - 10 - time.length)),
+          h(Text, { color: t.color.muted }, time)
+        )
+      })
+    return h(Section, { t, title: 'PIPELINE', count: agents?.length }, ...rows)
+  }
+
   function Explorer({ t, height }) {
     const scrollRef = React.useRef(null)
     const { sessions, crons } = usePoll(React)
@@ -151,6 +177,7 @@ export default function register(sdk) {
         ),
         pinnedRows.length ? h(Section, { t, title: 'FIXADAS', count: pinnedRows.length }, ...pinnedRows) : null,
         h(Section, { t, title: 'SESSÕES', count: sessions?.rows ? Math.min(sessions.rows.length, recentLimit) : undefined }, ...sessionRows),
+        h(PipelineSection, { t }),
         h(Section, { t, title: 'AGENDADOS', count: crons.rows?.length }, ...cronRows)
         )
       ),

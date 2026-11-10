@@ -6,11 +6,12 @@ the emana machines, kept in one versioned place:
 | Path | What |
 |---|---|
 | `skins/vscode-modern.yaml` | VS Code "Dark Modern" skin with pastel accents and muted diff colors |
-| `tui-widgets/sidebar.mjs` | right side bar: pinned + recent sessions, cron jobs of every profile, live background activity, command hints (`/sidebar` toggles) |
+| `tui-widgets/sidebar.mjs` | right side bar: pinned + recent sessions, running pipeline agents, cron jobs of every profile, live background activity, command hints (`/sidebar` toggles) |
 | `tui-widgets/pin.mjs` | `/pin [session-id]` — toggles a session's pin (same `pinned` flag as the desktop app) |
 | `tui-widgets/lib/data.mjs` | shared data layer (`state.db` read-only via `sqlite3`, `cron/jobs.json` of every profile) |
 | `tui-widgets/lib/quota.mjs` | Claude/Codex account-wide weekly quota via `hermes usage --json --read-only`; shared five-minute cache, failures shown as unavailable |
 | `tui-widgets/lib/gemini.mjs` | this month's Gemini (Vertex) spend of the emana pipeline, an ESTIMATE from agy tokens x list price computed by `emana-brain/scripts/despachante/gemini_spend.py`; shared five-minute cache, failures shown as unavailable |
+| `tui-widgets/lib/pipeline.mjs` | the emana pipeline's running agents (role, card, time on it) from `emana-brain/scripts/despachante/pipeline_agents.py`, polled every 20 s; a vanished process (✕) or expired lease (◷) is shown, a failed read is unavailable |
 | `tui-widgets/disabled/tabs.mjs` | tab bar + breadcrumbs (`header` zone), off; move it up a level and fix its import to enable |
 | `install.sh` | links the above into `$HERMES_HOME` and sets the `display.*` keys |
 

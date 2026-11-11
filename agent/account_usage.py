@@ -683,14 +683,22 @@ def _fetch_codex_account_usage_impl(
         if exc.response.status_code != 401:
             raise
         if read_only:
-            # Never refresh/rotate on the picker's read-only path — surface the failure.
-            raise
-        token, resolved_base_url, account_id = _resolve_codex_usage_credentials(
-            base_url, api_key, force_refresh=True,
-        )
-        payload = _get_json(
-            _codex_backend_urls(resolved_base_url)[0], _codex_headers(token, account_id), timeout=15.0,
-        )
+            # Never refresh/rotate on the picker's read-only path. The one repair is READING the Codex
+            # CLI's own still-valid token for the SAME account (never refreshed, never stored).
+            borrowed = _codex_cli_token_for_same_account(token)
+            if borrowed is None:
+                raise
+            token, account_id = borrowed
+            payload = _get_json(
+                _codex_backend_urls(resolved_base_url)[0], _codex_headers(token, account_id), timeout=15.0,
+            )
+        else:
+            token, resolved_base_url, account_id = _resolve_codex_usage_credentials(
+                base_url, api_key, force_refresh=True,
+            )
+            payload = _get_json(
+                _codex_backend_urls(resolved_base_url)[0], _codex_headers(token, account_id), timeout=15.0,
+            )
     rate_limit = payload.get("rate_limit") or {}
     windows = _usage_windows(rate_limit, _codex_window_labels(rate_limit), "used_percent", "reset_at")
     details: list[str] = []
@@ -704,6 +712,26 @@ def _fetch_codex_account_usage_impl(
         details.append("Credits balance: unlimited")
     return _snapshot("openai-codex", "usage_api", windows, details, plan=_title_case_slug(payload.get("plan_type")),
                      identity=_codex_snapshot_identity(token), raw=payload)
+
+
+def _codex_cli_token_for_same_account(rejected_token: str) -> Optional[tuple[str, Optional[str]]]:
+    """(access_token, account_id) of the Codex CLI's login when it is unexpired and belongs to the
+    same ChatGPT principal as the rejected token, else None. Read-only: the CLI owns that grant and
+    its single-use refresh token, so it is never refreshed or copied into Hermes' store."""
+    from agent.credential_pool import _codex_principal_identity
+    from agent.credential_sources import adopt_external_logins_enabled
+    from hermes_cli.auth import _import_codex_cli_tokens
+
+    if not adopt_external_logins_enabled():
+        return None
+    known = _codex_principal_identity(rejected_token)
+    imported = _import_codex_cli_tokens()
+    if not known or not imported:
+        return None
+    cli_token = str(imported.get("access_token") or "").strip()
+    if cli_token == rejected_token or _codex_principal_identity(cli_token) != known:
+        return None
+    return cli_token, str(imported.get("account_id") or "").strip() or None
 
 
 def _codex_snapshot_identity(token: str) -> Optional[str]:

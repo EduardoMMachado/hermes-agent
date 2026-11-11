@@ -10,6 +10,7 @@ the emana machines, kept in one versioned place:
 | `tui-widgets/pin.mjs` | `/pin [session-id]` — toggles a session's pin (same `pinned` flag as the desktop app) |
 | `tui-widgets/lib/data.mjs` | shared data layer (`state.db` read-only via `sqlite3`, `cron/jobs.json` of every profile) |
 | `tui-widgets/lib/quota.mjs` | Claude/Codex account-wide weekly quota via `hermes usage --json --read-only`; shared five-minute cache, failures shown as unavailable |
+| `tui-widgets/lib/claudeapi.mjs` | this month's Claude API cost of the Anthropic organization in US$, as Anthropic bills it (Usage and Cost Analytics API, Admin key from the Keychain); ten-minute cache, a failed reading shows its reason |
 | `tui-widgets/lib/gemini.mjs` | this month's Gemini (Vertex) cost in `emana-ai-dev` in BRL: Google's own token counts (Cloud Monitoring) x the catalog list price, computed by `emana-brain/scripts/despachante/gemini_spend.py`; shared five-minute cache, a failed reading shows its reason |
 | `tui-widgets/lib/pipeline.mjs` | the emana pipeline's running agents (role, card, time on it) from `emana-brain/scripts/despachante/pipeline_agents.py`, polled every 20 s; a vanished process (✕) or expired lease (◷) is shown, a failed read is unavailable |
 | `tui-widgets/disabled/tabs.mjs` | tab bar + breadcrumbs (`header` zone), off; move it up a level and fix its import to enable |
@@ -60,6 +61,14 @@ weekly window: every Gemini call of the project as Google counted it, at the BRL
 catalog list price. Taxes and credits (the introductory 50% comes back as one) are
 not included; Google's invoice is the source of truth. It reads a key of the
 read-only `custo-gemini` service account from the login Keychain.
+
+The Claude API (pay-per-token, not the Claude subscription above) shows the
+calendar month's cost of the whole Anthropic organization as Anthropic bills it:
+the post-discount, pre-credit amount in US$ from the Usage and Cost Analytics API
+(`/v1/organizations/analytics/cost`). Anthropic refreshes that export about every
+four hours, so the row says how recent the data is. It needs an Admin key in the
+login Keychain (service `emana-anthropic-admin`, account `custo`); a regular
+API key cannot read costs.
 
 ## Install / update
 

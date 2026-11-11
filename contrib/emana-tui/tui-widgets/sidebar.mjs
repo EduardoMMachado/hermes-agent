@@ -8,6 +8,7 @@ import { SOURCE_ICON, ago, fit, usePoll, when } from './lib/data.mjs'
 // Version the dependency when its API changes: the widget host reloads only top-level modules.
 import { formatQuotaReset, useWeeklyUsage } from './lib/quota.mjs?v=2'
 import { formatBrl, formatMonth, useGeminiSpend } from './lib/gemini.mjs?v=2'
+import { formatRefreshed, formatUsd, useClaudeApiCost } from './lib/claudeapi.mjs?v=1'
 import { ROLE, onCard, usePipelineAgents } from './lib/pipeline.mjs?v=1'
 
 const W = 42 // colunas reservadas pelo rail (host usa paddingX 1 → card = W - 2)
@@ -220,6 +221,19 @@ export default function register(sdk) {
       h(Text, { color: !valid || spend.unpriced.length ? t.color.warn : t.color.muted }, fit(note, INNER).trimEnd()))
   }
 
+  // Pay-per-token, so the month's cost as Anthropic bills it (post-discount, pre-credit, US$).
+  function ClaudeApiCost({ t }) {
+    const cost = useClaudeApiCost(React)
+    const valid = typeof cost.usd === 'number'
+    return h(Box, { flexDirection: 'column' },
+      h(Box, { flexDirection: 'row' },
+        h(Text, { color: t.color.text }, 'API'.padEnd(8)),
+        h(Text, { color: valid ? t.color.accent : t.color.muted }, valid ? formatUsd(cost.usd) : '—'),
+        h(Text, { color: t.color.muted }, ' em ' + formatMonth(cost.month))),
+      h(Text, { color: valid ? t.color.muted : t.color.warn },
+        fit(valid ? 'Claude API · ' + formatRefreshed(cost.refreshedAt) : cost.error || 'sem leitura', INNER).trimEnd()))
+  }
+
   // Footer hints; clicking runs the command. Bare /model opens the session's model picker.
   function WeeklyQuota({ t }) {
     const usage = useWeeklyUsage(React)
@@ -241,7 +255,8 @@ export default function register(sdk) {
       h(Text, { color: t.color.border }, '─'.repeat(INNER)),
       h(Text, { bold: true, color: t.color.label }, 'CONSUMO DE LLM · CONTA'),
       ...rows,
-      h(GeminiSpend, { t }))
+      h(GeminiSpend, { t }),
+      h(ClaudeApiCost, { t }))
   }
 
   const HINTS = [

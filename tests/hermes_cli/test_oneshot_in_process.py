@@ -1,7 +1,7 @@
 """Fork-only contract: with ``agent.oneshot_in_process`` a finite query runs the agent in the
 calling process (its env and HERMES_MANAGED_DIR reach the turn); without it, upstream's gateway
-path is untouched. The env/managed-layer behaviour end to end is probed by
-``emana.ai/.tmp/hermes-merge/probe-env.py`` against a fake provider and a live gateway."""
+path is untouched. The env/managed-layer behaviour end to end was verified separately by an
+out-of-tree probe against a fake provider and a live gateway."""
 import argparse
 
 from pathlib import Path

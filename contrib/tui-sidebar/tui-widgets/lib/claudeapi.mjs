@@ -1,7 +1,7 @@
 // This month's Claude API (pay-per-token) cost of the Anthropic organization, as Anthropic bills it:
-// the Usage and Cost Analytics API read with an Admin key from the login Keychain (owner decision
-// 2026-11-11). Only the provider's own number matches the invoice; a local token estimate did not
-// for Gemini. A failed reading shows its reason, never zero.
+// the Usage and Cost Analytics API read with an Admin key from a login Keychain item named by the
+// `claudeApi` section of tui-sidebar.json. Only the provider's own number matches the invoice, so no
+// local token estimate is attempted. A failed reading shows its reason, never zero.
 import { execFile } from 'node:child_process'
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -10,7 +10,6 @@ import { join } from 'node:path'
 const HOME = process.env.HERMES_HOME || join(homedir(), '.hermes')
 const CACHE = join(HOME, 'state', 'tui-claude-api-month-usd.json')
 const LOCK = CACHE + '.lock'
-export const KEYCHAIN = { service: 'emana-anthropic-admin', account: 'custo' }
 export const ENDPOINT = 'https://api.anthropic.com/v1/organizations/analytics/cost'
 const EMPTY = { usd: null, month: null, refreshedAt: null, error: 'sem leitura' }
 
@@ -33,15 +32,16 @@ export function parseCost(doc, month) {
   return { usd: cents / 100, month, refreshedAt: doc.data_refreshed_at ?? null, error: null }
 }
 
-export function readAdminKey(run = execFile) {
+/** The Admin key from the configured login Keychain item; null when it cannot be read. */
+export function readAdminKey(keychain, run = execFile) {
   return new Promise(resolve => {
-    run('security', ['find-generic-password', '-s', KEYCHAIN.service, '-a', KEYCHAIN.account, '-w'],
+    run('security', ['find-generic-password', '-s', keychain.service, '-a', keychain.account, '-w'],
       { timeout: 10000, maxBuffer: 4096 }, (error, stdout) => resolve(error ? null : String(stdout).trim() || null))
   })
 }
 
-export async function fetchCost({ now = new Date(), readKey = readAdminKey, http = fetch } = {}) {
-  const key = await readKey()
+export async function fetchCost({ keychain, now = new Date(), readKey = readAdminKey, http = fetch } = {}) {
+  const key = await readKey(keychain)
   if (!key) return { ...EMPTY, error: 'sem chave admin no Keychain' }
   const { start, month } = monthRange(now)
   try {
@@ -68,9 +68,11 @@ export function formatRefreshed(iso) {
 }
 
 // Anthropic refreshes the export about every 4 hours, so a 10-minute cache costs nothing in freshness.
-export async function loadClaudeApiCost() {
+export async function loadClaudeApiCost(cfg, fetcher = fetchCost) {
+  const key = JSON.stringify(cfg.keychain)
   let cached
   try { cached = JSON.parse(await readFile(CACHE, 'utf8')) } catch {}
+  if (cached?.key !== key) cached = undefined
   const age = Date.now() - Number(cached?.at || 0)
   if (age >= 0 && age < (cached?.data?.usd != null ? 600000 : 60000)) return cached.data
 
@@ -80,9 +82,9 @@ export async function loadClaudeApiCost() {
   } catch {}
   try { await mkdir(LOCK) } catch { return cached?.data ?? EMPTY }
   try {
-    const data = await fetchCost()
+    const data = await fetcher({ keychain: cfg.keychain })
     const temp = CACHE + '.' + process.pid
-    await writeFile(temp, JSON.stringify({ at: Date.now(), data }), { mode: 0o600 })
+    await writeFile(temp, JSON.stringify({ at: Date.now(), key, data }), { mode: 0o600 })
     await rename(temp, CACHE)
     return data
   } finally {
@@ -90,14 +92,15 @@ export async function loadClaudeApiCost() {
   }
 }
 
-export function useClaudeApiCost(React) {
+export function useClaudeApiCost(React, cfg) {
   const [cost, setCost] = React.useState(EMPTY)
+  const key = JSON.stringify(cfg.keychain)
   React.useEffect(() => {
     let alive = true
-    const tick = () => loadClaudeApiCost().then(data => { if (alive) setCost(data) }).catch(() => {})
+    const tick = () => loadClaudeApiCost(cfg).then(data => { if (alive) setCost(data) }).catch(() => {})
     tick()
     const timer = setInterval(tick, 60000)
     return () => { alive = false; clearInterval(timer) }
-  }, [])
+  }, [key])
   return cost
 }

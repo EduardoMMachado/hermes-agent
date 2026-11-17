@@ -1,0 +1,21 @@
+{
+  "vertexSpend": {
+    "label": "Gemini",
+    "project": "my-gcp-project",
+    "currency": "USD",
+    "inputPricePerToken": {
+      "gemini-3.8-flash": 3e-07
+    },
+    "keychain": { "service": "my-vertex-spend-sa", "account": "reader" },
+    "priceSource": "Cloud Billing catalog, Vertex AI text input SKU"
+  },
+  "claudeApi": {
+    "keychain": { "service": "my-anthropic-admin-key", "account": "reader" }
+  },
+  "agents": {
+    "title": "AGENTES",
+    "command": ["python3", "-B", "/path/to/my_agents.py", "--json"],
+    "refreshSeconds": 20,
+    "roleLabels": { "dev": "dev", "review": "revisor" }
+  }
+}

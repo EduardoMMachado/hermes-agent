@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { ENDPOINT, KEYCHAIN, fetchCost, formatUsd, monthRange, parseCost, readAdminKey } from '../tui-widgets/lib/claudeapi.mjs'
+import { ENDPOINT, fetchCost, formatUsd, monthRange, parseCost, readAdminKey } from '../tui-widgets/lib/claudeapi.mjs'
 
 const NOW = new Date('2026-11-11T18:30:00Z')
+const KEYCHAIN = { service: 'example-anthropic-admin', account: 'reader' }
 const ok = body => async () => ({ ok: true, status: 200, json: async () => body })
 
 test('the month cost is Anthropic\'s post-discount amount, read from cents', async () => {
@@ -43,13 +44,19 @@ test('one request for the UTC calendar month, with the admin key only in the hea
   assert.deepEqual(monthRange(new Date('2026-12-01T01:00:00-03:00')), { start: '2026-12-01T00:00:00Z', month: '2026-12' })
 })
 
-test('the key comes from the named login Keychain item', async () => {
-  const key = await readAdminKey((cmd, args, _opts, cb) => {
+test('the key comes from the configured login Keychain item', async () => {
+  const key = await readAdminKey(KEYCHAIN, (cmd, args, _opts, cb) => {
     assert.equal(cmd, 'security')
-    assert.deepEqual(args, ['find-generic-password', '-s', KEYCHAIN.service, '-a', KEYCHAIN.account, '-w'])
+    assert.deepEqual(args, ['find-generic-password', '-s', 'example-anthropic-admin', '-a', 'reader', '-w'])
     cb(null, 'sk-ant-admin01-x\n')
   })
   assert.equal(key, 'sk-ant-admin01-x')
-  assert.equal(await readAdminKey((_c, _a, _o, cb) => cb(new Error('not found'), '')), null)
+  assert.equal(await readAdminKey(KEYCHAIN, (_c, _a, _o, cb) => cb(new Error('not found'), '')), null)
   assert.equal(formatUsd(412.8).replace(/\s/g, ' '), 'US$ 412,80')
+})
+
+test('fetchCost hands the configured item to the key reader', async () => {
+  let asked
+  await fetchCost({ keychain: KEYCHAIN, now: NOW, readKey: async item => { asked = item; return null } })
+  assert.deepEqual(asked, KEYCHAIN)
 })

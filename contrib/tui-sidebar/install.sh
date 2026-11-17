@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Install the emana TUI customisation from this directory into the Hermes home:
+# Install the TUI side bar customisation from this directory into the Hermes home
+# ($HERMES_HOME, default ~/.hermes):
 #   - symlinks skins/vscode-modern.yaml and the whole tui-widgets/ directory, so the
 #     files live in the fork (versioned) and the next `hermes update` refreshes them;
-#   - sets the display config keys (only the ones whose value differs).
+#   - sets the display config keys (only the ones whose value differs);
+#   - never writes $HERMES_HOME/tui-sidebar.json (the optional rows' config); without
+#     one it prints where the example lives.
 # Anything already there that is not our symlink is moved aside as <name>.bak-<stamp>.
 # Idempotent. Usage: install.sh [--dry-run]
 set -euo pipefail
@@ -51,5 +54,12 @@ set_config display.interface tui
 set_config display.final_response_markdown render
 set_config display.tui_status_indicator unicode
 set_config display.timestamps true
+
+if [ -e "$home/tui-sidebar.json" ]; then
+    echo "ok      $home/tui-sidebar.json (optional rows configured there)"
+else
+    echo "note    no $home/tui-sidebar.json: optional rows (agents, Vertex, Claude API) stay hidden."
+    echo "        Example: $src/tui-sidebar.example.json (see $src/README.md)"
+fi
 
 echo "done. Open TUIs pick the widgets up with /widgets-reload; the skin needs a restart."

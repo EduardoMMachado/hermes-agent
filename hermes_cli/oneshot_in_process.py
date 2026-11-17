@@ -1,8 +1,8 @@
 """Fork-only (EduardoMMachado/hermes-agent): run a finite chat turn in THIS process.
 
 Upstream routes every chat launch through the gateway (3551045907): ``hermes chat --oneshot`` is a
-client, and the turn runs inside the gateway with the GATEWAY's environment and config. The emana
-dispatcher gives each worker its own environment — role identity read by the shell-hook guards,
+client, and the turn runs inside the gateway with the GATEWAY's environment and config. A job
+dispatcher may give each worker its own environment — role identity read by the shell-hook guards,
 the role's GitHub App token, and a per-role ``HERMES_MANAGED_DIR`` layer (model, reasoning,
 memory off, role hooks). Those only reach the turn when the agent runs in the worker's own process.
 

@@ -2,14 +2,17 @@
  * VS Code style right side bar (secondary side bar): activity bar + explorer (pinned and
  * recent sessions, cron jobs, live background activity, command hints), full height,
  * side-bar background. /sidebar toggles it. Click a section title to collapse/expand it.
- * On-screen labels are Portuguese on purpose (the owner reads them); code is English.
+ * Optional rows (running agents, Vertex and Claude API month cost) appear only when
+ * $HERMES_HOME/tui-sidebar.json configures them (lib/config.mjs).
+ * On-screen labels are Portuguese on purpose; code is English.
  */
 import { SOURCE_ICON, ago, fit, usePoll, when } from './lib/data.mjs'
 // Version the dependency when its API changes: the widget host reloads only top-level modules.
 import { formatQuotaReset, useWeeklyUsage } from './lib/quota.mjs?v=2'
-import { formatBrl, formatMonth, useGeminiSpend } from './lib/gemini.mjs?v=2'
-import { formatRefreshed, formatUsd, useClaudeApiCost } from './lib/claudeapi.mjs?v=1'
-import { ROLE, onCard, usePipelineAgents } from './lib/pipeline.mjs?v=1'
+import { INVALID, readConfig } from './lib/config.mjs?v=1'
+import { formatMoney, formatMonth, useVertexSpend } from './lib/vertex.mjs?v=1'
+import { formatRefreshed, formatUsd, useClaudeApiCost } from './lib/claudeapi.mjs?v=2'
+import { formatElapsed, useAgents } from './lib/agents.mjs?v=1'
 
 const W = 42 // colunas reservadas pelo rail (host usa paddingX 1 → card = W - 2)
 const CARD = W - 2
@@ -88,34 +91,39 @@ export default function register(sdk) {
     )
   }
 
-  // Pipeline agents: role, card, time on it. A claim is not proof its worker runs,
-  // so a vanished process (✕) or an expired lease (◷) is shown, not hidden.
-  function PipelineSection({ t }) {
-    const { agents, now, loading } = usePipelineAgents(React)
+  // Agents reported by the configured command: role, task, time on it. A registry entry is not
+  // proof its worker runs, so a vanished process (✕) or an expired lease (◷) is shown, not hidden.
+  function AgentsSection({ t, cfg }) {
+    const { agents, now, loading } = useAgents(React, cfg)
     const muted = (s, key) => h(Text, { key, color: t.color.muted }, s)
     let rows
     if (loading) rows = [muted('  carregando…', 'l')]
-    else if (!agents) rows = [muted('  sem leitura do despachante', 'u')]
+    else if (!agents) rows = [muted('  sem leitura do comando', 'u')]
     else if (!agents.length) rows = [muted('  Nenhum agente rodando', 'n')]
     else
       rows = agents.map(a => {
         const [glyph, tone] = a.alive === false ? ['✕', 'error'] : a.stale ? ['◷', 'warn'] : ['●', 'ok']
-        const time = onCard(a.since, now).padStart(6)
+        const time = formatElapsed(a.since, now).padStart(6)
         return h(
           Box,
           { key: a.card + a.role, flexDirection: 'row' },
           h(Text, { color: t.color[tone] }, ` ${glyph} `),
-          h(Text, { color: t.color.text }, fit(ROLE[a.role] || a.role, 10).padEnd(10)),
+          h(Text, { color: t.color.text }, fit(cfg.roleLabels[a.role] || a.role, 10).padEnd(10)),
           h(Text, { color: t.color.accent }, fit(a.card, INNER - 3 - 10 - time.length).padEnd(INNER - 3 - 10 - time.length)),
           h(Text, { color: t.color.muted }, time)
         )
       })
-    return h(Section, { t, title: 'PIPELINE', count: agents?.length }, ...rows)
+    return h(Section, { t, title: cfg.title, count: agents?.length }, ...rows)
   }
+
+  // Configured but malformed: say so where the row would be, never crash or guess.
+  const InvalidRow = ({ t, name }) => h(Text, { color: t.color.warn }, fit(`${name}: ${INVALID}`, INNER).trimEnd())
 
   function Explorer({ t, height }) {
     const scrollRef = React.useRef(null)
     const { sessions, crons } = usePoll(React)
+    // Re-read on each poll render (cheap: only when the file changed), so edits apply without a reload.
+    const config = readConfig()
     const hasSessions = Boolean(sessions)
     React.useEffect(() => {
       // First paint may grow from a loading row to the full list: start at the
@@ -178,7 +186,9 @@ export default function register(sdk) {
         ),
         pinnedRows.length ? h(Section, { t, title: 'FIXADAS', count: pinnedRows.length }, ...pinnedRows) : null,
         h(Section, { t, title: 'SESSÕES', count: sessions?.rows ? Math.min(sessions.rows.length, recentLimit) : undefined }, ...sessionRows),
-        h(PipelineSection, { t }),
+        config.agents?.error
+          ? h(Section, { t, title: 'AGENTES' }, h(InvalidRow, { t, name: 'agents' }))
+          : config.agents ? h(AgentsSection, { t, cfg: config.agents }) : null,
         h(Section, { t, title: 'AGENDADOS', count: crons.rows?.length }, ...cronRows)
         )
       ),
@@ -192,7 +202,7 @@ export default function register(sdk) {
         Box,
         { flexDirection: 'column', flexShrink: 0 },
         busyRows ? h(Activity, { t, activity }) : null,
-        h(WeeklyQuota, { t }),
+        h(WeeklyQuota, { t, config }),
         h(Text, { color: t.color.border }, '─'.repeat(INNER)),
         ...HINTS.map(([cmd, label]) =>
           h(
@@ -206,36 +216,40 @@ export default function register(sdk) {
     )
   }
 
-  // Metered, so a month's cost instead of a weekly window: Google's tokens at the catalog list price.
-  function GeminiSpend({ t }) {
-    const spend = useGeminiSpend(React)
-    const valid = typeof spend.brl === 'number'
+  // Metered, so a month's cost instead of a weekly window: Google's tokens at the configured list price.
+  function VertexSpend({ t, cfg }) {
+    const spend = useVertexSpend(React, cfg)
+    const valid = typeof spend.amount === 'number'
     const note = !valid ? spend.error || 'sem leitura'
       : spend.unpriced.length ? `${spend.unpriced.length} modelo(s) sem preço, fora`
       : 'preço de lista · sem impostos'
     return h(Box, { flexDirection: 'column' },
       h(Box, { flexDirection: 'row' },
-        h(Text, { color: t.color.text }, 'Gemini'.padEnd(8)),
-        h(Text, { color: valid ? t.color.accent : t.color.muted }, valid ? formatBrl(spend.brl) : '—'),
+        h(Text, { color: t.color.text }, fit(cfg.label, 7).padEnd(8)),
+        h(Text, { color: valid ? t.color.accent : t.color.muted }, valid ? formatMoney(spend.amount, spend.currency) : '—'),
         h(Text, { color: t.color.muted }, ' em ' + formatMonth(spend.month))),
       h(Text, { color: !valid || spend.unpriced.length ? t.color.warn : t.color.muted }, fit(note, INNER).trimEnd()))
   }
 
   // Pay-per-token, so the month's cost as Anthropic bills it (post-discount, pre-credit, US$).
-  function ClaudeApiCost({ t }) {
-    const cost = useClaudeApiCost(React)
+  function ClaudeApiCost({ t, cfg }) {
+    const cost = useClaudeApiCost(React, cfg)
     const valid = typeof cost.usd === 'number'
     return h(Box, { flexDirection: 'column' },
       h(Box, { flexDirection: 'row' },
-        h(Text, { color: t.color.text }, 'API'.padEnd(8)),
+        h(Text, { color: t.color.text }, fit(cfg.label, 7).padEnd(8)),
         h(Text, { color: valid ? t.color.accent : t.color.muted }, valid ? formatUsd(cost.usd) : '—'),
         h(Text, { color: t.color.muted }, ' em ' + formatMonth(cost.month))),
       h(Text, { color: valid ? t.color.muted : t.color.warn },
         fit(valid ? 'Claude API · ' + formatRefreshed(cost.refreshedAt) : cost.error || 'sem leitura', INNER).trimEnd()))
   }
 
-  // Footer hints; clicking runs the command. Bare /model opens the session's model picker.
-  function WeeklyQuota({ t }) {
+  // A configured optional cost row: the row itself, or the reason its config was refused.
+  const costRow = (t, section, name, Row) =>
+    !section ? null : section.error ? h(InvalidRow, { t, name }) : h(Row, { t, cfg: section })
+
+  // Account quotas (always) + the configured month-cost rows.
+  function WeeklyQuota({ t, config }) {
     const usage = useWeeklyUsage(React)
     const rows = [['Claude', 'anthropic'], ['Codex', 'openai-codex']].map(([name, provider]) => {
       const pct = usage[provider]?.percent
@@ -255,10 +269,11 @@ export default function register(sdk) {
       h(Text, { color: t.color.border }, '─'.repeat(INNER)),
       h(Text, { bold: true, color: t.color.label }, 'CONSUMO DE LLM · CONTA'),
       ...rows,
-      h(GeminiSpend, { t }),
-      h(ClaudeApiCost, { t }))
+      costRow(t, config.vertexSpend, 'vertexSpend', VertexSpend),
+      costRow(t, config.claudeApi, 'claudeApi', ClaudeApiCost))
   }
 
+  // Footer hints; clicking runs the command. Bare /model opens the session's model picker.
   const HINTS = [
     ['/sessions', 'trocar de sessão'],
     ['/new', 'nova conversa'],

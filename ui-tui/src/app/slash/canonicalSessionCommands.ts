@@ -11,6 +11,7 @@ import { usageFromTick } from '../../domain/usage.js'
 import type { BillingStateResponse } from '../../gatewayTypes.js'
 import { t } from '../../i18n/runtime.js'
 import { asRpcResult } from '../../lib/rpc.js'
+import { setSessionTitle } from '../liveSessions.js'
 import { patchUiState } from '../uiStore.js'
 
 import { mutateCanonical, type MutationSnapshot } from './canonicalSessionControls.js'
@@ -103,7 +104,7 @@ export function canonicalTitle(arg: string, ctx: SlashRunCtx) {
   void renameCanonicalSession(ctx.gateway.gw, sid, title, ctx.stale)
     .then(next => {
       if (next !== undefined && !ctx.stale()) {
-        patchUiState({ sessionTitle: next })
+        setSessionTitle(sid, next)
         ctx.transcript.sys(t('slashCmd.core.title.set', next, ''))
       }
     })

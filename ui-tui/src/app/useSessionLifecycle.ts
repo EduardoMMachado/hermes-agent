@@ -28,6 +28,7 @@ import type { Msg, PanelSection, SessionInfo } from '../types.js'
 import { noteBackgroundHandoff } from './backgroundSessionNotices.js'
 import { applyConnectionRequest, clearConnectionOperation } from './connectionOperationStore.js'
 import type { ComposerActions, GatewayRpc, StateSetter } from './interfaces.js'
+import { setSessionTitle } from './liveSessions.js'
 import { patchOverlayState } from './overlayStore.js'
 import { scheduleResumeScrollToBottom } from './sessionResumeView.js'
 import { renameCanonicalSession } from './slash/canonicalSessionCommands.js'
@@ -512,7 +513,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
 
               const nextTitle = (result.title ?? requestedTitle).trim()
               const suffix = result.pending ? t('session.lifecycle.titleQueuedSuffix') : ''
-              patchUiState({ sessionTitle: nextTitle })
+              setSessionTitle(r.session_id, nextTitle)
               sys(`${t('session.lifecycle.sessionTitleSet', nextTitle)}${suffix}`)
             })
             .catch((err: unknown) => {

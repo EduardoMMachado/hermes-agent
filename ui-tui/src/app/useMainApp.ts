@@ -58,7 +58,7 @@ import { createSlashHandler } from './createSlashHandler.js'
 import { planGatewayRecovery } from './gatewayRecovery.js'
 import { getInputSelection } from './inputSelectionStore.js'
 import { type GatewayRpc, type SlashHandler, type StateSetter, type TranscriptRow, type UiState } from './interfaces.js'
-import { applyLiveSessionRoster, requestLiveSessions } from './liveSessions.js'
+import { applyLiveSessionRoster, refreshSessionTitle, requestLiveSessions, setSessionTitle } from './liveSessions.js'
 import { applyControlSnapshot } from './loopStatus.js'
 import { $overlayState, capturePromptResponseGuard, hasSensitivePrompt, patchOverlayState } from './overlayStore.js'
 import { $goodVibesTick } from './petFlashStore.js'
@@ -708,7 +708,8 @@ export function useMainApp(gw: GatewayClient) {
 
   useEffect(() => {
     if (!ui.sid) {
-      patchUiState({ liveSessionCount: 0, sessionTitle: '' })
+      patchUiState({ liveSessionCount: 0 })
+      setSessionTitle(null, '')
 
       return
     }
@@ -760,12 +761,17 @@ export function useMainApp(gw: GatewayClient) {
 
           if (!stopped && result?.sessions) {
             noteLiveSessions(gw, result.sessions, sys, () => !stopped)
-            applyLiveSessionRoster(result.sessions)
+
+            // Not in the capped roster: read the title directly, at once and then every ~30 s (renames).
+            if (!applyLiveSessionRoster(result.sessions) && sid && unlistedPolls++ % 20 === 0) {
+              void refreshSessionTitle(gw, sid)
+            }
           }
         })
         .catch(() => {})
     }
 
+    let unlistedPolls = 0
     refresh()
     const timer = setInterval(refresh, 1500)
 

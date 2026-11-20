@@ -28,6 +28,7 @@ import {
 } from '../../../lib/terminalSetup.js'
 import type { Msg, PanelSection } from '../../../types.js'
 import type { StatusBarMode } from '../../interfaces.js'
+import { setSessionTitle } from '../../liveSessions.js'
 import { patchOverlayState } from '../../overlayStore.js'
 import { getUiState, patchUiState, sessionCwd } from '../../uiStore.js'
 import { openRewindPicker } from '../canonicalRewindPicker.js'
@@ -339,7 +340,7 @@ export const coreCommands: SlashCommand[] = [
           ctx.guarded<SessionTitleResponse>(r => {
             const next = (r?.title ?? title).trim()
             const suffix = r?.pending ? t('slashCmd.core.title.queuedSuffix') : ''
-            patchUiState({ sessionTitle: next })
+            setSessionTitle(ctx.sid, next)
             ctx.transcript.sys(t('slashCmd.core.title.set', next, suffix))
           })
         )

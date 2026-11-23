@@ -7,6 +7,7 @@ import asyncio
 from contextvars import ContextVar
 from dataclasses import asdict, replace
 import json
+import logging
 import os
 from pathlib import Path
 import threading
@@ -14,6 +15,8 @@ import threading
 from gateway.session_contract import SessionActor, SessionRef
 from hermes_state_keys import CRON_PRINCIPAL_ID, cron_request_id
 from hermes_state_runtime import RuntimeStoreError, admit_session_input, get_session_admission
+
+logger = logging.getLogger(__name__)
 
 _execution: ContextVar[tuple | None] = ContextVar('cron_owner_execution', default=None)
 _owners = {}
@@ -86,6 +89,27 @@ def bind_execution(authority, session_id, job_id, execution_id):
     """Bind this context's cron admission ``(authority, session_id, job_id, execution_id)``, the
     layout ``current_execution()`` readers index; returns the ``ContextVar`` reset token."""
     return _execution.set((authority, session_id, job_id, execution_id))
+
+
+# The owner commits a fire's session row at admission (``_create``), before ``run_job`` runs, and
+# ``_finalize_cron_session`` only ends rows of runs that opened a store for an agent turn. A fire a
+# pre-agent gate stops (monitor ``no_change``, ``wakeAgent=false``, a blocked prompt or provider)
+# therefore left a zero-message row with ``ended_at`` NULL, listed live by the owner (one per fire)
+# until a gateway restart reaped it as an orphan.
+def end_unrun_session(owner_execution, result):
+    """End the admitted row of a fire that ran no turn; return ``result`` unchanged.
+
+    ``owner_execution`` is ``current_execution()`` for this fire (None off the owner: nothing was
+    admitted, so nothing to end). The reason mirrors the run's own verdict: a gated fire that
+    succeeded is a complete run, a refused one booked no output."""
+    if owner_execution is None:
+        return result
+    authority, session_id = owner_execution[:2]
+    try:
+        authority.db.end_session(session_id, 'cron_complete' if result[0] else 'cron_incomplete_no_output')
+    except Exception:  # the fire's own verdict stands; only the row's live listing is at stake
+        logger.exception('cron: failed to end unrun cron session %s', session_id)
+    return result
 
 
 def _actor(authority, actor):

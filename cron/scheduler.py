@@ -2558,7 +2558,7 @@ def run_job(
     ``extra_prompt``: optional per-run context from ``cronjob(action='run', prompt=...)`` (#57331). Appended
     to the stored prompt for this fire only — never persisted to the job definition.
     """
-    from gateway.session_cron import current_execution
+    from gateway.session_cron import current_execution, end_unrun_session
     owner_execution = current_execution()
     if owner_execution is not None and owner_execution[2:] != (job['id'], execution_id):
         owner_execution = None
@@ -2570,8 +2570,8 @@ def run_job(
     job_name = str(job.get("name") or job.get("prompt") or job_id or "cron job")
 
     early, prompt = _prepare_job_prompt(job, job_id, job_name, extra_prompt, cancel_event)
-    if early is not None:
-        return early
+    if early is not None:  # a gated fire: its admitted row would otherwise stay live forever
+        return end_unrun_session(owner_execution, early)
     from run_agent import AIAgent
 
     _cron_session_id = (owner_execution[1] if owner_execution is not None else
@@ -2596,7 +2596,7 @@ def run_job(
         model = jc.model
         setup = _resolve_cron_agent_setup(job, job_id, job_name, jc)
         if setup.blocked is not None:
-            return setup.blocked
+            return end_unrun_session(owner_execution, setup.blocked)
         model = setup.model
 
         # Open state.db only after every early-return gate has passed.
@@ -2656,8 +2656,7 @@ def run_job(
             _run_doc_header(job, f"{job_name} (FAILED)", job_id, prompt)
             + format_run_error(e)
         )
-        return False, output, "", error_msg
-
+        return end_unrun_session(owner_execution if _session_db is None else None, (False, output, "", error_msg))
     finally:
         from cron.scheduler_detached_worker import defer_teardown_to_running_worker
         _worker_teardown_deferred = defer_teardown_to_running_worker(

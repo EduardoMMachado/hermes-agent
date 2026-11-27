@@ -1465,6 +1465,11 @@ DEFAULT_CONFIG = {
         # "skillevaluator @ git+https://github.com/NVIDIA/SkillEvaluator.git"). Informational, never
         # blocking; secrets-class findings shown red. No-op without it.
         "tier1_advisory": True,
+        # Opt-in enforcement of that scan's SkillSpector static `security` check: an install whose
+        # verdict is DO_NOT_INSTALL is refused (CLI, /skills install and agent installs alike) unless
+        # `--force`, which is logged. Fails closed: a scanner that is missing, times out or errors also
+        # refuses the install (again `--force` overrides). Installed skills are never rescanned.
+        "tier1_enforce": False,
         # Approval gate for skill_manage mutations on BOTH foreground turns and the background
         # review fork. true = ALWAYS stage (SKILL.md too large for an inline prompt): /skills
         # pending, /skills diff <id>, /skills approve|reject <id>.

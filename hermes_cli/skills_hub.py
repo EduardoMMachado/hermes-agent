@@ -791,13 +791,16 @@ def _record_skill_install(identifier: str, bundle, outcome: str, attempt: Option
 def do_install(identifier: str, category: str = "", force: bool = False,
                console: Optional[Console] = None, skip_confirm: bool = False,
                invalidate_cache: bool = True, name_override: str = "",
-               source_id: Optional[str] = None) -> Optional[bool]:
+               source_id: Optional[str] = None, tier1_override: Optional[bool] = None) -> Optional[bool]:
     """Fetch, quarantine, scan, confirm, and install a skill. ``source_id`` pins resolution to one
     adapter; callers that know the provenance (``do_update``) must pass it so a bare identifier
     cannot resolve to a same-named skill elsewhere.
 
     A first install is recorded once as an extension install; updates and ``--force`` reinstalls
     of an installed skill run through here too and are not installs, nor is a cancelled prompt.
+
+    ``skills.tier1_enforce`` refuses a DO_NOT_INSTALL Tier 1 verdict unless ``tier1_override`` (default:
+    ``force``) is set; ``do_update`` passes its own flag, as it always reinstalls with ``force=True``.
 
     Returns True when the skill was installed, False when the install failed (unresolved name,
     fetch, scan block, bad path), None for a no-op the user owns (already installed, declined).
@@ -810,7 +813,8 @@ def do_install(identifier: str, category: str = "", force: bool = False,
     try:
         bundle, outcome, installed = _install_skill(identifier, category, force, console or _console,
                                                     skip_confirm, invalidate_cache, name_override, source_id,
-                                                    attempt=attempt)
+                                                    attempt=attempt,
+                                                    tier1_override=force if tier1_override is None else tier1_override)
     except Exception as exc:
         if fresh:
             _record_skill_install(identifier, None, "failed", attempt, error=exc)
@@ -822,7 +826,7 @@ def do_install(identifier: str, category: str = "", force: bool = False,
 
 def _install_skill(identifier: str, category: str, force: bool, c: Console, skip_confirm: bool,
                    invalidate_cache: bool, name_override: str, source_id: Optional[str],
-                   attempt: Optional[dict] = None) -> tuple:
+                   attempt: Optional[dict] = None, tier1_override: bool = False) -> tuple:
     """``do_install``'s body: ``(bundle, outcome, installed)``. ``outcome`` is the extension-install
     event (None when this was no new install); ``installed`` is ``do_install``'s return value.
     ``attempt`` collects the metric's ``registry`` (adapter id) and, on a failed exit, its
@@ -901,9 +905,13 @@ def _install_skill(identifier: str, category: str, force: bool, c: Console, skip
                          f"{len(result.findings)}_findings", q_path=q_path, lead="\n", label="Not installed:")
         attempt["failure_class"] = "scan_blocked"
         return bundle, failed, False
+    tier1 = _tier1_enforce_gate(c, q_path, bundle, identifier, tier1_override)
+    if tier1 is False:
+        attempt["failure_class"] = "scan_blocked"
+        return bundle, failed, False
     # Advisory second opinion — warn-and-continue by design (PII-class findings are
     # informational); the install confirmation below is where the user decides.
-    _print_tier1_advisory(q_path, c)
+    _print_tier1_advisory(q_path, c, report=tier1)
     metadata_lines = _format_extra_metadata_lines(extra_metadata)
     if metadata_lines:
         c.print(Panel("\n".join(metadata_lines), title="Upstream Metadata", border_style="blue"))
@@ -927,15 +935,40 @@ def _install_skill(identifier: str, category: str, force: bool, c: Console, skip
     return bundle, None if existing else "success", True
 
 
-def _print_tier1_advisory(skill_dir, console) -> None:
+def _tier1_enforce_gate(c: Console, q_path: Path, bundle, identifier: str, override: bool):
+    """``skills.tier1_enforce`` (off by default): the Tier 1 report to reuse for the advisory print, ``None``
+    when the setting is off, or False after refusing the install (the verdict is not OK and not ``override``)."""
+    from tools.skillevaluator_enforce import (VERDICT_OK, tier1_block_message, tier1_enforce_enabled,
+                                              tier1_enforce_verdict)
+    if not tier1_enforce_enabled():
+        return None
+    from tools.skillevaluator_scan import run_tier1_scan
+    report = run_tier1_scan(q_path)
+    verdict, detail = tier1_enforce_verdict(report)
+    if verdict == VERDICT_OK:
+        return report
+    if not override:
+        _install_blocked(c, bundle, tier1_block_message(identifier, verdict, detail), verdict, "tier1_enforce",
+                         q_path=q_path, lead="\n", label="Not installed:")
+        return False
+    from tools.skills_hub import append_audit_log
+    append_audit_log("FORCED", bundle.name, bundle.source, bundle.trust_level, verdict, f"tier1_enforce {detail}")
+    logging.getLogger(__name__).warning("skills.tier1_enforce overridden with --force for %s: %s (%s)",
+                                        identifier, verdict, detail)
+    c.print(f"[bold yellow]--force:[/] installing despite Tier 1 verdict {verdict} ({detail}); logged.")
+    return report
+
+
+def _print_tier1_advisory(skill_dir, console, report=None) -> None:
     """Advisory SkillEvaluator Tier 1 report. Never raises/blocks: scanner missing, disabled via
-    ``skills.tier1_advisory: false``, or erroring all degrade to silence. Secrets render red."""
+    ``skills.tier1_advisory: false``, or erroring all degrade to silence. Secrets render red.
+    ``report`` is a scan the caller already ran (``skills.tier1_enforce``), shown instead of scanning again."""
     try:
         from tools.skillevaluator_scan import (format_tier1_report, run_tier1_scan,
                                                tier1_advisory_enabled)
         if not tier1_advisory_enabled():
             return
-        report = run_tier1_scan(Path(skill_dir))
+        report = report or run_tier1_scan(Path(skill_dir))
         if not report.available:
             return
         text = format_tier1_report(report)
@@ -1078,7 +1111,7 @@ def do_update(name: Optional[str] = None, console: Optional[Console] = None,
         # Pin to the lockfile's source registry: a bare identifier such as "reddit" would
         # otherwise fuzzy-resolve inside do_install to a same-named skill in a DIFFERENT
         # registry, overwriting the user's files and rewriting the lock's `source`.
-        if do_install(entry["identifier"], category=category, force=True, console=c,
+        if do_install(entry["identifier"], category=category, force=True, console=c, tier1_override=force,
                       source_id=entry.get("source", "") or None) is False:
             failed.append(entry["name"])
 

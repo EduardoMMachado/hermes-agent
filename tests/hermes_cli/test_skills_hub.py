@@ -529,7 +529,7 @@ def _update_env(monkeypatch, tmp_path, *, edit_after_install: bool):
     installs = []
     monkeypatch.setattr(
         cli_hub, "do_install",
-        lambda identifier, category="", force=False, console=None, source_id=None:
+        lambda identifier, category="", force=False, console=None, source_id=None, tier1_override=None:
             installs.append(identifier),
     )
 

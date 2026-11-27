@@ -232,3 +232,39 @@ class TestInstallPathHelper:
                         return_value=report):
             _print_tier1_advisory(tmp_path, console)
         assert console.print.called
+
+
+class TestSecurityVerdict:
+    """The security verdict ``skills.tier1_enforce`` reads: SkillEvaluator drops SkillSpector's
+    ``recommendation``, so DO_NOT_INSTALL is derived from the risk-score message/finding (score > 50)."""
+
+    @staticmethod
+    def _security(**kw):
+        res = {"validator": "Security & PII Scanning", "passed": True, "status": "passed", "findings": [],
+               "legacy": {"messages": []}}
+        res.update(kw)
+        return _parse_report({"results": [res]})
+
+    def test_score_above_50_message_is_do_not_install(self):
+        r = self._security(legacy={"messages": ["skillspector risk score: 51/100 (HIGH)"]})
+        assert r.security_checked and r.skillspector_detail == "risk score 51/100 (HIGH)"
+
+    def test_score_of_50_or_less_is_not(self):
+        assert not self._security(legacy={"messages": ["skillspector risk score: 50/100 (MEDIUM)"]}).skillspector_detail
+
+    def test_risk_score_finding_is_do_not_install(self):
+        r = self._security(findings=[_finding("skillspector_risk_score", message="aggregate risk score 64/100")])
+        assert r.skillspector_detail
+
+    def test_no_security_validator_is_not_checked(self):
+        r = _parse_report(_report_json([]))
+        assert not r.security_checked and not r.skillspector_detail
+
+    def test_incomplete_security_check_is_flagged(self):
+        r = self._security(status="incomplete")
+        assert r.security_incomplete and r.security_checked
+
+    def test_message_on_another_validator_is_ignored(self):
+        r = _parse_report({"results": [{"validator": "PII Scan", "legacy": {
+            "messages": ["skillspector risk score: 90/100 (CRITICAL)"]}}]})
+        assert not r.skillspector_detail

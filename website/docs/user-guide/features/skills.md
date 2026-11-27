@@ -403,6 +403,35 @@ skills:
 The dashboard's Browse-hub scan button returns the same advisory data in
 its response (`tier1` field) alongside the built-in scanner's verdict.
 
+### Enforcing the Tier 1 security verdict (opt-in)
+
+By default the scan never blocks. To refuse installs the `security` check
+marks `DO_NOT_INSTALL` (SkillSpector static risk score above 50, i.e. a HIGH
+or CRITICAL rating):
+
+```yaml
+skills:
+  tier1_enforce: true   # default: false
+```
+
+With it on, `hermes skills install`, `/skills install` and an agent running
+the CLI through the terminal tool all stop with `Not installed:` and a
+non-zero exit code, and nothing is installed. `--force` is the reviewed
+exception: the install proceeds, and the verdict is printed, logged and
+appended to the skills audit log (`FORCED`). `hermes skills update` honours the
+same gate (its own `--force` is the exception).
+
+The gate **fails closed**: if `skillevaluator` is not on PATH, times out,
+crashes, or its security check does not complete (SkillSpector missing), the
+install is refused too, with the reason, because a gate that opens whenever
+the scanner is absent protects nothing. Install both binaries (above) before
+turning it on, or use `--force` for a single install. Only installs are
+checked; skills already installed are never rescanned. A single HIGH finding
+that keeps the aggregate score at or below 50 (SkillSpector: `CAUTION`) does not
+block. The verdict is read from the scanner's report, which has no
+`recommendation` field: it is derived from the `skillspector risk score`
+message and `skillspector_risk_score` finding SkillEvaluator emits above 50.
+
 ## External Skill Directories
 
 If you maintain skills outside of Hermes — for example, a shared `~/.agents/skills/` directory used by multiple AI tools — you can tell Hermes to scan those directories too.

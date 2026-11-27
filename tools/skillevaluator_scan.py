@@ -136,9 +136,14 @@ def run_tier1_scan(skill_dir: Path, timeout: int = SCAN_TIMEOUT_SECONDS) -> Tier
         return unavailable("scanner not on PATH")
     with tempfile.TemporaryDirectory(prefix="se-tier1-") as outdir:
         try:
+            # The scanner is its own Python (a uv tool); the Hermes launcher's PYTHONPATH (repo root + Hermes
+            # site-packages) would make it import Hermes's compiled deps for another interpreter and crash with no
+            # report, which tier1_enforce then reads as "cannot check" and refuses every install.
+            from tools.environments.local import hermes_subprocess_env
             subprocess.run([SCANNER_BIN, "validate", str(skill_dir), "--checks", TIER1_CHECKS, "--no-dedup",
                             "-r", "json", "-o", outdir], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           stdin=subprocess.DEVNULL, timeout=timeout, check=False)
+                           stdin=subprocess.DEVNULL, timeout=timeout, check=False,
+                           env=hermes_subprocess_env(inherit_credentials=False))
         except subprocess.TimeoutExpired:
             return unavailable(f"scan timed out after {timeout}s")
         except OSError as exc:

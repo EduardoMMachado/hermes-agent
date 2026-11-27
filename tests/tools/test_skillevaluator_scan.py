@@ -129,6 +129,26 @@ class TestRunTier1Scan:
             report = run_tier1_scan(tmp_path)
         assert not report.available
 
+    def test_scanner_child_gets_no_hermes_pythonpath(self, tmp_path, monkeypatch):
+        """The scanner is a separate Python. Run from the `hermes` launcher, the parent's PYTHONPATH names the
+        Hermes repo root, and the child imported Hermes's pydantic_core built for another interpreter, crashed
+        with no report, and tier1_enforce refused every hub install (`SCAN_UNAVAILABLE`)."""
+        import tools.environments.local_pythonpath as lp
+        repo_root = str(Path(__file__).resolve().parents[2])
+        monkeypatch.setenv("PYTHONPATH", repo_root)
+        monkeypatch.setattr(lp._state(), "_hermes_repo_root_aliases", [Path(repo_root)], raising=False)
+        seen = {}
+
+        def fake_run(cmd, **kwargs):
+            seen["env"] = kwargs.get("env")
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+
+        with mock.patch("tools.skillevaluator_scan.shutil.which", return_value="/usr/bin/skillevaluator"), \
+             mock.patch("tools.skillevaluator_scan.subprocess.run", side_effect=fake_run):
+            run_tier1_scan(tmp_path)
+        assert seen["env"] is not None
+        assert repo_root not in seen["env"].get("PYTHONPATH", "").split(":")
+
     def test_real_report_parsed(self, tmp_path):
         """subprocess.run mocked to drop a real-shaped report into outdir."""
         payload = _report_json([_finding("emails")])

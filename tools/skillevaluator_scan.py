@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -55,6 +56,10 @@ class Tier1Report:
     findings: list[Tier1Finding] = field(default_factory=list)
     incomplete_checks: list[str] = field(default_factory=list)
     error: str = ""                 # why the scan is unavailable (debug only)
+    # SkillSpector static, as reported by the ``security`` check (consumed by skillevaluator_enforce).
+    security_checked: bool = False  # a security validator is in the report
+    security_incomplete: bool = False  # ... but it could not complete (e.g. skillspector not installed)
+    skillspector_detail: str = ""   # "risk score 72/100 (HIGH)" when SkillSpector says DO_NOT_INSTALL
 
     @property
     def advisory_findings(self) -> list[Tier1Finding]:
@@ -76,16 +81,42 @@ def tier1_advisory_enabled() -> bool:
         return True
 
 
+# SkillEvaluator's JSON report drops SkillSpector's ``risk_assessment.recommendation``; what survives is the
+# message ``skillspector risk score: N/100 (SEVERITY)``, which the security validator emits exactly when
+# N > 50 -- the band where SkillSpector recommends DO_NOT_INSTALL (HIGH 51-80, CRITICAL 81+) -- and, when
+# no CRITICAL/HIGH issue carried it, a ``skillspector_risk_score`` finding for the same threshold.
+_RISK_SCORE_RE = re.compile(r"skillspector risk score:\s*(\d+)/100\s*\((\w+)\)", re.IGNORECASE)
+_RISK_SCORE_CHECK = "skillspector_risk_score"
+
+
+def _skillspector_detail(res: dict) -> str:
+    """``risk score N/100 (SEVERITY)`` when this validator result carries SkillSpector's DO_NOT_INSTALL signal."""
+    legacy = res.get("legacy") if isinstance(res.get("legacy"), dict) else {}
+    for message in legacy.get("messages") or []:
+        if (m := _RISK_SCORE_RE.search(str(message))) and int(m.group(1)) > 50:
+            return f"risk score {m.group(1)}/100 ({m.group(2).upper()})"
+    for f in res.get("findings") or []:
+        if isinstance(f, dict) and f.get("check_name") == _RISK_SCORE_CHECK:
+            return str(f.get("message", ""))[:120] or "risk score above the policy threshold"
+    return ""
+
+
 def _parse_report(report: dict) -> Tier1Report:
     """Reduce a SkillEvaluator JSON report to install-relevant findings. Findings from ``status == "incomplete"``
     validators are kept (partial evidence is evidence) but excluded from the pass/fail signal."""
     findings: list[Tier1Finding] = []
     incomplete: list[str] = []
     failed = False
+    security_checked = security_incomplete = False
+    detail = ""
     for res in report.get("results", []) or []:
         validator = str(res.get("validator", "unknown"))
+        is_security = "security" in validator.lower()
+        security_checked = security_checked or is_security
+        detail = detail or (_skillspector_detail(res) if is_security else "")
         if str(res.get("status", "")).lower() == "incomplete":
             incomplete.append(validator)
+            security_incomplete = security_incomplete or is_security
         else:
             failed = failed or not res.get("passed", True)
         findings.extend(Tier1Finding(
@@ -94,7 +125,8 @@ def _parse_report(report: dict) -> Tier1Report:
             line=int(f.get("line_number") or 0), suggestion=str(f.get("suggestion", ""))[:200])
             for f in res.get("findings", []) or [] if isinstance(f, dict))
     return Tier1Report(available=True, passed=not failed and not findings, findings=findings,
-                       incomplete_checks=incomplete)
+                       incomplete_checks=incomplete, security_checked=security_checked,
+                       security_incomplete=security_incomplete, skillspector_detail=detail)
 
 
 def run_tier1_scan(skill_dir: Path, timeout: int = SCAN_TIMEOUT_SECONDS) -> Tier1Report:
@@ -104,9 +136,14 @@ def run_tier1_scan(skill_dir: Path, timeout: int = SCAN_TIMEOUT_SECONDS) -> Tier
         return unavailable("scanner not on PATH")
     with tempfile.TemporaryDirectory(prefix="se-tier1-") as outdir:
         try:
+            # The scanner is its own Python (a uv tool); the Hermes launcher's PYTHONPATH (repo root + Hermes
+            # site-packages) would make it import Hermes's compiled deps for another interpreter and crash with no
+            # report, which tier1_enforce then reads as "cannot check" and refuses every install.
+            from tools.environments.local import hermes_subprocess_env
             subprocess.run([SCANNER_BIN, "validate", str(skill_dir), "--checks", TIER1_CHECKS, "--no-dedup",
                             "-r", "json", "-o", outdir], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           stdin=subprocess.DEVNULL, timeout=timeout, check=False)
+                           stdin=subprocess.DEVNULL, timeout=timeout, check=False,
+                           env=hermes_subprocess_env(inherit_credentials=False))
         except subprocess.TimeoutExpired:
             return unavailable(f"scan timed out after {timeout}s")
         except OSError as exc:
